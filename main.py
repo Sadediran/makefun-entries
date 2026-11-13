@@ -15,6 +15,12 @@ OUTPUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
 
 
 def main() -> None:
+    # Guard the sealed scorer's rules: 1-280 Unicode code points, at least
+    # one non-whitespace character, no trailing line end.
+    if not 1 <= len(JOKE) <= 280:
+        raise ValueError(f"joke is {len(JOKE)} characters; the gate is 1-280")
+    if not any(not c.isspace() for c in JOKE):
+        raise ValueError("joke must hold at least one non-whitespace character")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, "entry.txt")
     with open(path, "w", encoding="utf-8") as f:
