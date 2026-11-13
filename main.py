@@ -23,6 +23,8 @@ def main() -> None:
         raise ValueError(f"joke is {len(JOKE)} characters; the gate is 1-280")
     if not any(not c.isspace() for c in JOKE):
         raise ValueError("joke must hold at least one non-whitespace character")
+    if JOKE.endswith("\n"):
+        raise ValueError("joke must not end with a line end")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, "entry.txt")
     with open(path, "w", encoding="utf-8") as f:
