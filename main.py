@@ -2,11 +2,14 @@
 """Copy the entry image to the competition output directory, verified.
 
 The entry is a single food photograph, image.png, sitting next to this
-script. This program copies it byte-for-byte to
-$MAKEFUN_OUTPUT_DIR/entry.png (or /output/entry.png when the variable is
-unset), then checks the copy is identical by comparing SHA-256 hashes of
-the source and the destination. If the hashes differ it raises an error
-instead of leaving a bad file behind.
+script: a bowl of tonkotsu ramen, chopsticks lifting a tall glossy
+noodle pull high above the bowl, steam curling around the noodles, a
+soft egg with its yolk dripping, charred chashu, nori and a swirl of
+chili oil on a dark wooden table. This program copies it byte-for-byte
+to $MAKEFUN_OUTPUT_DIR/entry.png (or /output/entry.png when the
+variable is unset), then checks the copy is identical by comparing
+SHA-256 hashes of the source and the destination. If the hashes differ
+it raises an error instead of leaving a bad file behind.
 
 The program is fully deterministic: the same input bytes always produce
 the same output bytes, and it uses only the Python standard library.
