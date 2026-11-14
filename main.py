@@ -1440,8 +1440,11 @@ class Aggregator:
         headers = {"content-type": "application/json"}
         headers.update(auth_headers(provider.auth, provider.key))
         if provider.wire == "openai":
-            upstream = dict(body)
-            upstream["model"] = model_id
+            if client_api == "anthropic":
+                upstream = anthropic_to_openai(body, model_id)
+            else:
+                upstream = dict(body)
+                upstream["model"] = model_id
             if stream:
                 upstream["stream"] = True
                 upstream["stream_options"] = {"include_usage": True}
