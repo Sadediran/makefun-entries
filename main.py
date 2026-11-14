@@ -37,6 +37,13 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / "entry.txt"
     dest.write_text(POEM, encoding="utf-8")
+    # Self-check the gate's rules on what was just written: UTF-8,
+    # 1 to 1,000 characters, at least one non-whitespace character.
+    text = dest.read_text(encoding="utf-8")
+    if not 1 <= len(text) <= 1000:
+        raise ValueError(f"poem is {len(text)} characters, outside 1-1000")
+    if not any(not c.isspace() for c in text):
+        raise ValueError("poem holds no non-whitespace character")
     print(f"wrote {dest} ({dest.stat().st_size} bytes)")
 
 
