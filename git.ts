@@ -615,7 +615,7 @@ function fetchV2Response(store: Store, repo: Repo, args: readonly string[]): Buf
   let done = false;
   for (const line of args) {
     if (line.startsWith('want ')) wants.push(line.slice(5).trim());
-    else if (line.startsWith('have ')) haves.push(line.slice(8).trim());
+    else if (line.startsWith('have ')) haves.push(line.slice(5).trim());
     else if (line.startsWith('shallow ')) shallow.push(line.slice(8).trim());
     else if (line.startsWith('deepen ')) depth = Number.parseInt(line.slice(7).trim(), 10);
     else if (line === 'done') done = true;

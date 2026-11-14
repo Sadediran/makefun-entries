@@ -725,6 +725,22 @@ class Executor {
         if (field === 'author') return { __typename: 'User', login: VIEWER_LOGIN, id: gid('User', VIEWER_ID) };
         return null;
       }
+      // Mutation payloads and edges are transparent wrappers over the objects
+      // resolveMutation stored on them.
+      case 'CreateIssuePayload':
+      case 'CloseIssuePayload':
+      case 'CreatePullRequestPayload':
+      case 'MergePullRequestPayload':
+      case 'AddCommentPayload':
+      case 'IssueCommentEdge': {
+        if (field === 'issue') return parent.issue ?? null;
+        if (field === 'pullRequest') return parent.pullRequest ?? null;
+        if (field === 'commentEdge') return parent.commentEdge ?? null;
+        if (field === 'node') return parent.node ?? null;
+        if (field === 'cursor') return parent.cursor ?? null;
+        if (field === 'clientMutationId') return parent.clientMutationId ?? null;
+        return null;
+      }
       default:
         return null;
     }
