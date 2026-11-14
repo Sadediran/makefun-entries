@@ -7,48 +7,63 @@ make.fun competition: polymarket-faa-attribution-02 (program/v1).
 Reads every <id>.in case file from $MAKEFUN_INPUT_DIR (else /input) and writes
 one <id>.out forecast file per case to $MAKEFUN_OUTPUT_DIR (else /output).
 
-Method -- persistence with a short-window, jump-robust spread and a gated
-multiplicative drift:
+Method -- persistence with a pooled, jump-robust spread and a pooled,
+gated multiplicative drift:
 
-  * Median: the price stays where it was at the checkpoint, plus a drift that
-    only switches on when the recent trend is statistically real. These four
-    markets were created on 2026-11-13 and spent their first hours crashing
-    from their opening prices (Iran 0.515 -> 0.02, AI sandbox 0.215 -> 0.006)
-    as the crowd priced "no attribution" in, then went flat. A blind drift
-    extrapolates the crash forever and is badly wrong once the market
-    settles; no drift at all misses a genuine bleed while it lasts. So the
-    drift is the mean log-price move over the last 6 hours, shrunk by 0.5,
-    and applied only when |mean| exceeds twice its standard error (a
-    two-sigma gate). On flat prices the gate stays shut and the median is
-    plain persistence; on a real trend it follows it, multiplicatively, so
-    the median decays toward (never below) a small positive floor instead
-    of going linearly negative.
+  * Median: the price stays where it was at the checkpoint, plus a drift
+    that only switches on when the recent trend is statistically real.
+    These four markets were created on 2026-11-13 and spent their first
+    hours crashing from their opening prices (Iran 0.515 -> 0.02, AI
+    sandbox 0.215 -> 0.006) as the crowd priced "no attribution" in, then
+    went flat. A blind drift extrapolates the crash forever and is badly
+    wrong once the market settles; no drift at all misses a genuine bleed
+    while it lasts. So the drift is the mean log-price move over the last
+    6 hours, shrunk by 0.5, and applied only when it exceeds twice its
+    standard error (a two-sigma gate). On flat prices the gate stays shut
+    and the median is plain persistence; on a real trend it follows it,
+    multiplicatively, so the median decays toward (never below) a small
+    positive floor instead of going linearly negative.
+    The drift is estimated two ways and blended half and half: once per
+    market on its own, and once pooled across every market in the case.
+    Pooling matters because a trend shared by all four markets (the whole
+    family repricing "no attribution" together) is invisible in any one
+    market's noisy moves but unmistakable once their moves are averaged:
+    the pooled estimate's standard error is half a single market's, so its
+    gate opens on a real common trend where per-market gates stay shut.
+    The per-market half catches a trend in one market alone (news about a
+    single attribution). When neither fires, the median is persistence.
   * Spread: for each market, sigma is the 90th percentile of the absolute
-    1-minute price moves over the last 90 minutes, divided by 1.645 (the
-    normal 90% two-sided factor), floored at 0.0005 and capped at 0.004.
-    Prices here sit still for minutes and then jump, so a plain standard
-    deviation is dominated by a few jumps and forecasts far too wide at
-    every quiet minute; the q90 of |moves| tracks the market's *typical*
-    step size instead. The window is short on purpose: these are young
-    markets whose regime changed within hours (discovery crash, then flat),
-    so a 24-hour window would keep stale crash moves in the estimate long
-    after the market settled. The 90-minute window re-estimates the spread
-    from the market as it is now, and widens again within 90 minutes if
-    news breaks and trading turns jumpy.
+    1-minute price moves over the last 6 hours, divided by 1.645 (the
+    normal 90% two-sided factor), floored at 0.0005 and capped at 0.004 --
+    but the moves are pooled across the markets in the case that sit in
+    the same price bucket (under 0.02, 0.02-0.05, 0.05-0.10, 0.10-0.20,
+    0.20-0.40, 0.40-1.00). Prices here sit still for minutes and then jump,
+    so a plain standard deviation is dominated by a few jumps and
+    forecasts far too wide at every quiet minute; the q90 of |moves|
+    tracks the market's *typical* step size instead. Pooling by price
+    bucket matters because step size scales with price level, and a market
+    with a short or quiet history of its own (a new market, or one that
+    has not traded for minutes) still gets a spread estimated from the
+    moves of its price-level peers instead of falling back to a blind
+    floor. A market whose own history is long still contributes most of
+    its own bucket's moves.
   * Quantiles: q_tau(h) = clamp(median(h) + z_tau * sigma * sqrt(h), 0, 1),
     rounded to 6 decimals, with z the standard-normal quantiles at
     0.05/0.25/0.5/0.75/0.95.
 
 Local practice scores (six NVIDIA practice cases, p00-p05, scored against
 the following cases' histories and live Polymarket history for p05):
-pinball loss 0.293, median error 0.80, 90% coverage 0.88 -- against the
-house baseline's 0.372 / 0.80 / 0.95 on the same six cases. On four
-backtest cases cut from the FAA markets' own first hours (two in the crash,
-two in the quiet bleed), it scores 0.77-0.83 where the baseline scores
-0.84-0.89, and in the flat hours since the market settled it scores ~0.12
-against the baseline's ~0.19. The practice score is no guide to the final
-(the rules say so); the method was chosen because it adapts to the short,
-jumpy, regime-changing history these four markets actually have.
+pinball loss 0.294, median error 0.80, 90% coverage 0.90 -- against the
+house baseline's 0.372 / 0.80 / 0.95 on the same six cases. On seven
+backtest cases cut from the FAA markets' own first hours -- two in the
+opening crash, two in the quiet bleed that followed, three in the flat
+hours since -- it scores 2.79 / 0.39 / 0.13 where the baseline scores
+2.95 / 0.86 / 0.19 and a per-market-only version of the same idea scores
+3.11 / 0.81 / 0.13. The practice score is no guide to the final (the
+rules say so); the method was chosen because it adapts to the short,
+jumpy, regime-changing history these four markets actually have, and
+because pooling across the family makes both the spread and the trend
+reliable where any single market's history is too thin or too noisy.
 
 Deterministic: standard library only, no network, no randomness, no clock.
 The same input always produces the same bytes.
@@ -67,9 +82,12 @@ QUANTILES = [0.05, 0.25, 0.5, 0.75, 0.95]
 # The standard normal's quantile at each level, to 6 decimals.
 Z = [-1.644854, -0.67449, 0.0, 0.67449, 1.644854]
 
-# Minutes of history used to estimate a market's step size. Short on
-# purpose: these markets changed regime within hours of being created.
-SIGMA_WINDOW_MINUTES = 90
+# Price buckets for pooling moves across markets: step size scales with
+# price level, so moves are pooled among markets near the same price.
+PRICE_BUCKETS = [0.0, 0.02, 0.05, 0.10, 0.20, 0.40, 1.01]
+# Minutes of history used to estimate a market's step size and its drift.
+SIGMA_WINDOW_MINUTES = 6 * 60
+DRIFT_WINDOW_MINUTES = 6 * 60
 # Quantile of |1-minute moves| that sets the scale, and the normal factor it
 # is divided by (for a normal, P(|r| <= 1.645*sigma) = 0.90).
 SCALE_QUANTILE = 0.90
@@ -78,17 +96,19 @@ SCALE_DIVISOR = 1.644854
 SIGMA_FLOOR = 0.0005
 SIGMA_CAP = 0.004
 
-# Minutes of history used to estimate the drift, and the gate on it.
-DRIFT_WINDOW_MINUTES = 6 * 60
+# The drift is shrunk by this factor, and applies only when |mean log move|
+# exceeds this many standard errors -- otherwise the median is plain
+# persistence.
 DRIFT_SHRINK = 0.5
-# The drift applies only when |mean log move| exceeds this many standard
-# errors -- otherwise the median is plain persistence.
 DRIFT_T_GATE = 2.0
 # The most the drift may move the median in log terms over the horizon.
 DRIFT_LOG_CAP = 1.5
 # A market needs at least this many minutes of history before any drift is
 # considered at all.
 DRIFT_MIN_MINUTES = 30
+# Blend between the pooled drift (across the case's markets) and each
+# market's own drift: 0.5 is half and half.
+POOLED_DRIFT_WEIGHT = 0.5
 
 
 def clamp6(x):
@@ -146,39 +166,61 @@ def z_values(quantiles):
     return [norm_ppf(q) for q in quantiles]
 
 
-def estimate_sigma(prices):
-    """Jump-robust per-minute spread of one market's price.
+def bucket_of(x):
+    """Index of the price bucket x falls in."""
+    for i in range(len(PRICE_BUCKETS) - 1):
+        if PRICE_BUCKETS[i] <= x < PRICE_BUCKETS[i + 1]:
+            return i
+    return len(PRICE_BUCKETS) - 2
 
-    The 90th percentile of |1-minute moves| over the last 90 minutes,
-    rescaled to a normal sigma, floored and capped. Markets with almost no
-    history or no moves at all fall back to the floor.
+
+def pooled_sigmas(markets):
+    """Per-market sigma, from |1-minute moves| pooled by price bucket.
+
+    Moves from the last SIGMA_WINDOW_MINUTES are collected per bucket
+    (bucketed by the move's starting price), and each market takes its
+    current price's bucket's q90, rescaled to a normal sigma, floored and
+    capped. A bucket with too few moves falls back to the floor.
     """
-    n = min(len(prices) - 1, SIGMA_WINDOW_MINUTES)
-    if n < 10:
-        return SIGMA_FLOOR
-    seg = prices[-n - 1:]
-    moves = sorted(abs(seg[i + 1] - seg[i]) for i in range(n))
-    q90 = moves[int(SCALE_QUANTILE * len(moves))]
-    sigma = q90 / SCALE_DIVISOR
-    return min(SIGMA_CAP, max(SIGMA_FLOOR, sigma))
+    by_bucket = {}
+    for market in markets:
+        prices = market["prices"]
+        n = min(len(prices) - 1, SIGMA_WINDOW_MINUTES)
+        if n < 1:
+            continue
+        seg = prices[-n - 1:]
+        for i in range(n):
+            by_bucket.setdefault(bucket_of(seg[i]), []).append(
+                abs(seg[i + 1] - seg[i]))
+    sigma_by_bucket = {}
+    for b, moves in by_bucket.items():
+        moves = sorted(moves)
+        q90 = moves[int(SCALE_QUANTILE * len(moves))]
+        sigma_by_bucket[b] = min(
+            SIGMA_CAP, max(SIGMA_FLOOR, q90 / SCALE_DIVISOR))
+    out = {}
+    for market in markets:
+        prices = market["prices"]
+        if not prices:
+            out[market["id"]] = SIGMA_FLOOR
+        else:
+            out[market["id"]] = sigma_by_bucket.get(
+                bucket_of(prices[-1]), SIGMA_FLOOR)
+    return out
 
 
-def estimate_log_drift(prices):
-    """Gated mean log-price move per minute, or 0.0 when the trend is weak.
+def _gated_mean(moves):
+    """Shrunk mean of a list of log-price moves, or 0.0 when it is weak.
 
-    The mean of the log-price moves over the last 6 hours, shrunk by
-    DRIFT_SHRINK, returned only when its size exceeds DRIFT_T_GATE
-    standard errors; otherwise 0.0 (plain persistence). A market with too
-    little history, or one whose prices never moved, also returns 0.0.
+    The mean, shrunk by DRIFT_SHRINK, returned only when its size exceeds
+    DRIFT_T_GATE standard errors; otherwise 0.0. A list with too few
+    moves, or one whose moves never vary, also returns 0.0.
     """
-    n = min(len(prices) - 1, DRIFT_WINDOW_MINUTES)
+    n = len(moves)
     if n < DRIFT_MIN_MINUTES:
         return 0.0
-    seg = prices[-n - 1:]
-    moves = [logit(seg[i + 1]) - logit(seg[i]) for i in range(n)]
     mean = sum(moves) / n
-    mean_sq = sum(m * m for m in moves) / n
-    var = mean_sq - mean * mean
+    var = sum(m * m for m in moves) / n - mean * mean
     if var <= 0.0:
         return 0.0
     se = math.sqrt(var / n)
@@ -187,32 +229,67 @@ def estimate_log_drift(prices):
     return DRIFT_SHRINK * mean
 
 
-def forecast_market(market, horizon, z):
-    """One market's forecast: `horizon` rows of the five quantiles."""
-    prices = market["prices"]
-    if not prices:
-        # A market with no prices at all: centre on 0.5 with the floor
-        # spread rather than crashing the run (a crash invalidates the
-        # whole case). The rules guarantee at least one price; this is a
-        # guard only.
-        x = 0.5
-        sigma = SIGMA_FLOOR
-        drift = 0.0
-    else:
-        x = prices[-1]
-        sigma = estimate_sigma(prices)
-        drift = estimate_log_drift(prices)
-    rows = []
-    for h in range(1, horizon + 1):
-        if drift:
-            shift = max(-DRIFT_LOG_CAP, min(DRIFT_LOG_CAP, drift * h))
-            centre = x * math.exp(shift)
-            centre = min(max(centre, 0.0005), 0.999)
+def blended_drifts(markets):
+    """Per-market log-drift per minute: half pooled, half the market's own.
+
+    Each half is a gated mean log-price move over the last
+    DRIFT_WINDOW_MINUTES (see _gated_mean). The pooled half averages the
+    moves of every market in the case, so a trend the whole family shares
+    is estimated far more precisely than any single market's trend; the
+    own half catches a trend in one market alone. Returns {id: drift}.
+    """
+    pooled_moves = []
+    own_moves = {}
+    for market in markets:
+        prices = market["prices"]
+        n = min(len(prices) - 1, DRIFT_WINDOW_MINUTES)
+        if n < 1:
+            own_moves[market["id"]] = []
+            continue
+        seg = prices[-n - 1:]
+        moves = [logit(seg[i + 1]) - logit(seg[i]) for i in range(n)]
+        own_moves[market["id"]] = moves
+        pooled_moves.extend(moves)
+    pooled = _gated_mean(pooled_moves)
+    out = {}
+    for market in markets:
+        own = _gated_mean(own_moves[market["id"]])
+        out[market["id"]] = (
+            POOLED_DRIFT_WEIGHT * pooled
+            + (1.0 - POOLED_DRIFT_WEIGHT) * own)
+    return out
+
+
+def forecast_case(markets, horizon, z):
+    """One case's forecast: {market id: `horizon` rows of quantiles}."""
+    sigmas = pooled_sigmas(markets)
+    drifts = blended_drifts(markets)
+    forecasts = []
+    for market in markets:
+        prices = market["prices"]
+        if not prices:
+            # A market with no prices at all: centre on 0.5 with the floor
+            # spread rather than crashing the run (a crash invalidates the
+            # whole case). The rules guarantee at least one price; this is
+            # a guard only.
+            x = 0.5
+            drift = 0.0
         else:
-            centre = x
-        spread = sigma * math.sqrt(h)
-        rows.append([clamp6(centre + zv * spread) for zv in z])
-    return rows
+            x = prices[-1]
+            drift = drifts[market["id"]]
+        sigma = sigmas[market["id"]]
+        rows = []
+        for h in range(1, horizon + 1):
+            if drift:
+                shift = max(-DRIFT_LOG_CAP, min(DRIFT_LOG_CAP, drift * h))
+                centre = x * math.exp(shift)
+                centre = min(max(centre, 0.0005), 0.999)
+            else:
+                centre = x
+            spread = sigma * math.sqrt(h)
+            rows.append([clamp6(centre + zv * spread) for zv in z])
+        forecasts.append({"id": market["id"], "q": rows})
+    return forecasts
 
 
 def main():
@@ -225,11 +302,8 @@ def main():
         case_id = path.name[: -len(".in")]
         case = json.loads(path.read_text(encoding="utf-8"))
         z = z_values(case["quantiles"])
-        forecasts = [
-            {"id": m["id"],
-             "q": forecast_market(m, case["horizon_minutes"], z)}
-            for m in case["markets"]
-        ]
+        forecasts = forecast_case(
+            case["markets"], case["horizon_minutes"], z)
         out = output_dir / ("%s.out" % case_id)
         out.write_text(
             json.dumps({"forecasts": forecasts}, separators=(",", ":")) + "\n",
