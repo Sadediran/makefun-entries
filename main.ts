@@ -54,6 +54,11 @@ const TRAIL_BPS = 15n; // -1.5% below the peak position value
 
 const closes: bigint[] = [];
 let peakValue = 0n;
+/** Seq of the batch on which the last sell was decided; re-entries wait out
+ *  a short cooldown so an exit is not chased straight back into the same
+ *  move (the exit just said the move was over or the stop was hit). */
+let lastSellSeq = -1000;
+const REENTRY_COOLDOWN_BARS = 30;
 
 await runBars({
   onBatch(state, batch) {
@@ -73,6 +78,7 @@ await runBars({
       const trailing = value * 1000n <= peakValue * (1000n - TRAIL_BPS);
       if (takeProfit || stopLoss || trailing) {
         peakValue = 0n;
+        lastSellSeq = state.seq;
         const sells: SellInput[] = [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS }];
         return sells;
       }
@@ -80,6 +86,7 @@ await runBars({
     }
 
     if (state.seq > LAST_ENTRY_SEQ) return [];
+    if (state.seq - lastSellSeq < REENTRY_COOLDOWN_BARS) return [];
     const n = closes.length;
     if (n < 241) return [];
     const close240 = closes[n - 241];
