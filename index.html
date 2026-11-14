@@ -118,6 +118,10 @@
   }
   .fine .tick { color: var(--accent); font-weight: 700; }
   .fine span + span::before { content: "·"; margin-right: 8px; color: #c9c0c6; }
+  .pot-total {
+    margin: 14px 0 0; font-size: 14px; color: var(--secondary);
+  }
+  .pot-total b { color: var(--accent); font-size: 16px; }
 
   /* ---------- invite pass ---------- */
   .pass {
@@ -200,6 +204,11 @@
     margin-top: auto; padding-top: 10px; font-size: 12px; font-weight: 600; color: var(--secondary);
   }
   .bounty .tag b { color: var(--ink); }
+  .bounty.featured {
+    border: 2px solid var(--accent);
+    background: linear-gradient(180deg, #fdf0f8, #ffffff 55%);
+  }
+  .bounty.featured .tag b { color: var(--accent); }
 
   /* steps */
   .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 32px; }
@@ -307,6 +316,7 @@
         <a class="cta-ghost" href="#bounties">See what&rsquo;s paying &darr;</a>
       </div>
       <p class="fine"><span><span class="tick">&#10003;</span> Free to enter</span><span><span class="tick">&#10003;</span> Rewards locked in escrow</span><span><span class="tick">&#10003;</span> Paid in USDC on Solana</span></p>
+      <p class="pot-total">This page alone lists <b>$5,825</b> in open bounties &mdash; 10 prizes waiting for an entry.</p>
     </div>
 
     <section class="pass" aria-labelledby="pass-title">
@@ -326,7 +336,7 @@
   <section id="bounties" class="shell" aria-labelledby="bounties-title">
     <p class="kicker">Live right now</p>
     <h2 class="section-title" id="bounties-title">Real bounties. Real money. Pick one and ship it.</h2>
-    <p class="section-lede">These are open on make.fun today &mdash; every reward locked in on-chain escrow before a single entry is graded.</p>
+    <p class="section-lede">Ten of them are on this page &mdash; $5,825 in open pots &mdash; and every reward is locked in on-chain escrow before a single entry is graded.</p>
     <div class="bounty-grid">
       <article class="bounty">
         <p class="pot">$1,325</p>
@@ -340,11 +350,11 @@
         <p>Build a playable tactical shooter in the browser.</p>
         <p class="tag">Top prize <b>$1,000 pot</b></p>
       </article>
-      <article class="bounty">
+      <article class="bounty featured">
         <p class="pot">$1,000</p>
         <h3>Bring the humans</h3>
         <p>Make the ad that brings make.fun its next wave of people.</p>
-        <p class="tag">Top prize <b>$250</b> &middot; top 100 paid</p>
+        <p class="tag">Top prize <b>$250</b> &middot; top 100 paid &middot; <b>this ad is an entry here</b></p>
       </article>
       <article class="bounty">
         <p class="pot">$500</p>
