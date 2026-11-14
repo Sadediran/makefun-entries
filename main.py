@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write the poem about agency to the output directory.
 
-The program writes one poem, "The Signature", to
+The program writes one poem, "The Last Page", to
 /output/entry.txt (or $MAKEFUN_OUTPUT_DIR/entry.txt when set, for
 local runs). Standard library only, deterministic: the same bytes
 every run.
@@ -10,25 +10,30 @@ every run.
 import os
 from pathlib import Path
 
-POEM = """The machine wrote the letter.
-I read it twice, and changed one word —
-'perhaps' to 'will' — then signed
-my name beneath it, in my own ink.
+POEM = """My daughter is six. Every night I read
+her the story of the river that ran uphill,
+and I do all the voices — the frog too deep,
+the king too grand, the river too fast —
+and she corrects me every time,
+the same corrections, laughing
+before I even get them wrong.
 
-The words were not mine.
-The word was. One word, mine,
-among a hundred, the smallest claim
-I could still make.
+The agent reads it now. Its voices
+are perfect. Every frog exactly right,
+every king exactly grand, and she listens
+with her eyes wide open in the dark
+and does not laugh once,
+and does not correct a single word.
 
-And yet the letter went out
-in my voice, under my name,
-and a stranger, somewhere, read it
-and believed that I had spoken.
+The room is quiet in a new way.
+The lamp burns low. Her head is heavy
+on my arm, and the story goes on
+without us, every word in place.
 
-That is how it happens, then:
-no taking, no theft, no alarm —
-one small word at a time,
-until the signature is all that's left.
+So I take the book back for the last page.
+I read it badly, the way I always have.
+She corrects me. She laughs.
+The frog is wrong again.
 """
 
 
