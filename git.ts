@@ -361,15 +361,18 @@ function rebuildV0(store: Store, repo: Repo, service: 'git-upload-pack' | 'git-r
   return Buffer.concat(parts);
 }
 
+/** The v2 capability advertisement never changes: build it once. */
+const V2_ADVERTISEMENT: Buffer = Buffer.concat([
+  pktLine('version 2\n'),
+  pktLine(`agent=${AGENT}\n`),
+  pktLine('ls-refs=unborn\n'),
+  pktLine('fetch=shallow wait-for-done filter\n'),
+  pktLine('object-format=sha1\n'),
+  pktFlush(),
+]);
+
 function v2Advertisement(): Buffer {
-  return Buffer.concat([
-    pktLine('version 2\n'),
-    pktLine(`agent=${AGENT}\n`),
-    pktLine('ls-refs=unborn\n'),
-    pktLine('fetch=shallow wait-for-done filter\n'),
-    pktLine('object-format=sha1\n'),
-    pktFlush(),
-  ]);
+  return V2_ADVERTISEMENT;
 }
 
 // ---------------------------------------------------------------- fetch computation
@@ -506,23 +509,26 @@ function planFetch(
     }
     for (const parent of commit.parents) hQueue.push(parent);
   }
-  // ACKs: haves that are ancestors of (or equal to) a want.
+  // ACKs: haves that are ancestors of (or equal to) a want. With no haves
+  // there is nothing to acknowledge, so skip the full reachability walk.
   const acks: string[] = [];
-  const fullReachable = new Set<string>();
-  const rQueue: string[] = [];
-  for (const want of wants) {
-    const peeled = repo.objects.get(want)?.type === 'tag' ? store.peelToCommit(repo, want) : want;
-    if (peeled !== null && peeled !== undefined) rQueue.push(peeled);
+  if (haves.length > 0) {
+    const fullReachable = new Set<string>();
+    const rQueue: string[] = [];
+    for (const want of wants) {
+      const peeled = repo.objects.get(want)?.type === 'tag' ? store.peelToCommit(repo, want) : want;
+      if (peeled !== null && peeled !== undefined) rQueue.push(peeled);
+    }
+    while (rQueue.length > 0) {
+      const oid = rQueue.pop()!;
+      if (fullReachable.has(oid)) continue;
+      fullReachable.add(oid);
+      const commit = store.commitOf(repo, oid);
+      if (commit === null) continue;
+      for (const parent of commit.parents) rQueue.push(parent);
+    }
+    for (const have of haves) if (fullReachable.has(have) && repo.objects.has(have)) acks.push(have);
   }
-  while (rQueue.length > 0) {
-    const oid = rQueue.pop()!;
-    if (fullReachable.has(oid)) continue;
-    fullReachable.add(oid);
-    const commit = store.commitOf(repo, oid);
-    if (commit === null) continue;
-    for (const parent of commit.parents) rQueue.push(parent);
-  }
-  for (const have of haves) if (fullReachable.has(have) && repo.objects.has(have)) acks.push(have);
 
   const objects: GitObject[] = [];
   for (const oid of wanted) {
