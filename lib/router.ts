@@ -71,13 +71,16 @@ export interface Pick {
 }
 
 export class Router {
+  private brief: Brief;
   private calls = new Map<string, number>();
   private failedAt = new Map<string, Set<number>>();
   private dead = new Set<string>();
   private served = new Map<string, number>();
   private lossSoFar = 0;
 
-  constructor(private brief: Brief) {}
+  constructor(brief: Brief) {
+    this.brief = brief;
+  }
 
   /** Record a served request's rating, for the quality-budget ledger. */
   servedRequest(requestId: string, rating: number): void {
