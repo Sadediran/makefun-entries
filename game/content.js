@@ -38,8 +38,10 @@ export const ENEMIES = {
           colour: '#b08ae0', wing: '#d0b0f0', desc: 'The final boss. Costs two hearts if it breaks through.' },
 };
 
-/** Scoring: +5 per reflection banked on a shot; +20 per extra kill in one
- *  shot's chain (Silver Thread adds +5 to each chain kill). */
+/** Scoring: +5 per reflection banked on a shot — but only when the beam
+ *  actually hurts something that shot (a harmless pass banks nothing, so
+ *  reflection farming is impossible); +20 per extra kill in one shot's
+ *  chain (Silver Thread adds +5 to each chain kill). */
 export const SCORE_PER_REFLECTION = 5;
 export const SCORE_PER_CHAIN_KILL = 20;
 export const SCORE_PER_UNSPENT_EMBER = 10;

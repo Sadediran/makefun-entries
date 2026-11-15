@@ -148,6 +148,7 @@ export function applyShot(state) {
     path: trace.path, reflections: trace.reflections,
     kills: [], damageDealt: 0, shieldedHits: 0, chainKills: 0,
     score: 0, embers: 0, breached: [], burstEvents: 0,
+    reflectionBonus: 0, // banked only when the beam hurt something (below)
   };
   const living = () => state.moths.filter((m) => m.hp > 0);
   let firstDamagingDone = false;
@@ -208,8 +209,15 @@ export function applyShot(state) {
     }
   }
 
-  // Reflections banked.
-  report.score += trace.reflections * SCORE_PER_REFLECTION;
+  // Reflections bank only when the beam actually hurt something this shot:
+  // a harmless pass — or one that only touches shielded moths — banks
+  // nothing, so parking a moth behind a buttress and firing at it forever
+  // farms no score. (Burst damage only follows a beam kill, so damageDealt
+  // above zero always means the beam itself landed a hit.)
+  if (report.damageDealt > 0) {
+    report.reflectionBonus = trace.reflections * SCORE_PER_REFLECTION;
+    report.score += report.reflectionBonus;
+  }
 
   // Remove the dead, then advance the survivors one tile toward the bottom
   // line. Bottom-first, so a moth never blocks the one behind it: a moth

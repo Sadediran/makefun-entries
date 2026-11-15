@@ -105,11 +105,19 @@ function refresh() {
   ui.showBossBar(livingBoss(state.moths));
 }
 
+/** The FIRE/Undo/Pause bar belongs to gameplay (and pause) only: on every
+ *  other screen those buttons do nothing, so the bar is hidden there.
+ *  Called at every screen transition. */
+function syncControls() {
+  ui.setControlsVisible(screen === 'play' || screen === 'pause');
+}
+
 // ---------------------------------------------------------------- screens
 
 function showStart() {
   screen = 'start';
   state = null;
+  syncControls();
   ui.showOverlay('startOverlay');
   const best = save.campaignBest > 0 ? `Best campaign: ${save.campaignBest}${save.campaignGrade ? ` (grade ${save.campaignGrade})` : ''}` : 'No campaign yet — defend all four towers.';
   ui.el('startBest').textContent = best;
@@ -118,6 +126,7 @@ function showStart() {
 function showMap() {
   screen = 'map';
   state = null;
+  syncControls();
   ui.renderMap(mapRows(campaign), towersDefended(campaign), startTower, resetProgress);
   ui.showOverlay('mapOverlay');
   ui.setHint('Pick a tower to defend.');
@@ -145,6 +154,7 @@ function nextTower() {
 function startTower(towerId) {
   tower = towerById(towerId);
   screen = 'intro';
+  syncControls();
   const foes = [...new Set(tower.assaults.flatMap((a) => [...a.moths, a.boss].filter(Boolean)))]
     .map((t) => (t === 'guardian' ? tower.assaults[2].bossName : t === 'grand' ? 'The Grand Moth' : t[0].toUpperCase() + t.slice(1) + ' Moth'))
     .join(' · ');
@@ -156,6 +166,7 @@ function startTower(towerId) {
 function beginRun() {
   state = newRun(tower);
   screen = 'play';
+  syncControls();
   ui.hideOverlays();
   particles = new Particles();
   beamAnim = null;
@@ -221,9 +232,9 @@ function fire() {
   } else {
     audio.playFire();
   }
-  if (report.reflections > 0) {
+  if (report.reflectionBonus > 0) {
     const p = cellCentre(state.board.emitterCol, 5);
-    particles.floatText(p.x, p.y, `+${report.reflections * 5} reflections`);
+    particles.floatText(p.x, p.y, `+${report.reflectionBonus} reflections`);
   }
   if (report.chainKills >= 2) {
     banner = { text: `CHAIN ×${report.chainKills + 1}!`, at: performance.now() };
@@ -270,8 +281,10 @@ function assaultWon() {
   }
   state.craftsBought = [];
   screen = 'craft';
+  syncControls();
   ui.renderCraft(state, buyCraftChoice, craftDone);
   ui.showOverlay('craftOverlay');
+  ui.setHudBetweenAssaults(state.assaultIndex + 1);
   ui.setHint('Spend Embers on crafts — or press Done to keep them (they convert to score).');
 }
 
@@ -288,9 +301,11 @@ function buyCraftChoice(craftId) {
 /** Done crafting: on to the relic draft. */
 function craftDone() {
   screen = 'draft';
+  syncControls();
   draftOffers = draftOffer(tower, state.assaultIndex, state.relics);
   ui.renderDraft(draftOffers, draftPick);
   ui.showOverlay('draftOverlay');
+  ui.setHudBetweenAssaults(state.assaultIndex + 1);
   ui.setHint('Choose a relic — it stays with you for the rest of this tower.');
   audio.playClick();
 }
@@ -303,6 +318,7 @@ function draftPick(relicId) {
     audio.playDraft();
   }
   screen = 'play';
+  syncControls();
   ui.hideOverlays();
   startAssault(state.assaultIndex + 1);
 }
@@ -313,6 +329,7 @@ function draftPick(relicId) {
 function towerWon() {
   const bonus = towerEndBonus(state);
   state.score += bonus;
+  refresh(); // the HUD must show the final score (bonus included), not the stale pre-bonus one
   const grade = gradeFor(tower, gradeScore(state));
   recordTower(save, tower.id, state.score, grade, true);
   storeSave(save);
@@ -323,6 +340,7 @@ function towerWon() {
     return;
   }
   screen = 'towerWin';
+  syncControls();
   ui.renderTowerWin({
     tower, grade, score: state.score, kills: state.kills, turn: state.turn,
     hearts: state.hearts, embersEarned: state.embersEarned, embersSpent: state.embersSpent,
@@ -339,6 +357,8 @@ function campaignWon() {
   recordCampaign(save, total, grade);
   storeSave(save);
   screen = 'campaignWin';
+  syncControls();
+  ui.showCampaignHUD(total); // the HUD shows the campaign total, matching the victory panel
   ui.renderCampaignWin({
     grade, total,
     rows: TOWERS.map((t) => ({
@@ -372,6 +392,7 @@ function defeat() {
   ];
   const tip = tips[(tower.seed + state.assaultIndex) % tips.length];
   screen = 'defeat';
+  syncControls();
   ui.renderDefeat({
     tower, assaultIndex: state.assaultIndex, score: state.score, kills: state.kills, turn: state.turn, tip,
   }, beginRun, showMap);
@@ -384,10 +405,12 @@ function defeat() {
 function togglePause() {
   if (screen === 'play') {
     screen = 'pause';
+    syncControls();
     ui.showOverlay('pauseOverlay');
     audio.playClick();
   } else if (screen === 'pause') {
     screen = 'play';
+    syncControls();
     ui.hideOverlays();
     audio.playClick();
   }

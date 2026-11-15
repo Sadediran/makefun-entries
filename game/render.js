@@ -224,16 +224,31 @@ export function drawScene(ctx, view) {
   // Particles and floating texts.
   view.particles.draw(ctx);
 
-  // Chain banner: a transient shout when a shot chains kills.
+  // Banner: a transient shout (boss awakening, chain, breach), above the
+  // board. A dark backing plate keeps it legible over the rose window and
+  // the board art; it holds full opacity, then fades in the last stretch
+  // of its 1400 ms life, so the words are always readable while shown.
   if (view.banner && time - view.banner.at < 1400) {
+    const age = time - view.banner.at;
+    const alpha = age < 800 ? 1 : 1 - (age - 800) / 600;
     ctx.save();
-    ctx.globalAlpha = 1 - (time - view.banner.at) / 1400;
+    ctx.globalAlpha = alpha;
     ctx.font = '700 30px Georgia, serif';
     ctx.textAlign = 'center';
+    const bx = CANVAS_W / 2;
+    const by = BOARD.y - 46;
+    const bw = ctx.measureText(view.banner.text).width;
+    ctx.fillStyle = 'rgba(10, 6, 16, 0.82)';
+    ctx.beginPath();
+    ctx.roundRect(bx - bw / 2 - 18, by - 34, bw + 36, 46, 8);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 233, 168, 0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
     ctx.fillStyle = '#ffe9a8';
     ctx.shadowColor = '#c89020';
     ctx.shadowBlur = 14;
-    ctx.fillText(view.banner.text, CANVAS_W / 2, BOARD.y - 46);
+    ctx.fillText(view.banner.text, bx, by);
     ctx.restore();
   }
 }

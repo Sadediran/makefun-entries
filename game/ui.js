@@ -21,6 +21,12 @@ export function showOverlay(id) {
   el(id).classList.remove('hidden');
 }
 
+/** Show or hide the FIRE/Undo/Pause bar: gameplay and pause only. On every
+ *  other screen those buttons do nothing, so the bar is hidden there. */
+export function setControlsVisible(visible) {
+  el('controls').classList.toggle('hidden', !visible);
+}
+
 /** The hint line under the board. */
 export function setHint(text) {
   el('hint').textContent = text;
@@ -50,6 +56,26 @@ export function updateHUD(state, tower, save) {
     relics.appendChild(span);
   }
   if (state.relics.length === 0) relics.textContent = 'No relics yet';
+}
+
+/** Between assaults (craft and draft screens), the HUD names the UPCOMING
+ *  assault — the run state still holds the finished one — and the turn
+ *  reads '—', since no turn is in progress. The next assault's refresh
+ *  restores the live values. */
+export function setHudBetweenAssaults(nextAssaultIndex) {
+  el('hudAssault').textContent = `Assault ${nextAssaultIndex + 1} / 3`;
+  el('hudTurn').textContent = '—';
+}
+
+/** On the campaign victory screen, the HUD summarises the campaign: the
+ *  final total (matching the victory panel's "Total score"), not the last
+ *  tower's pre-bonus score. Hearts, Embers, relics and best keep the last
+ *  tower's final values. */
+export function showCampaignHUD(total) {
+  el('hudTower').textContent = 'Campaign';
+  el('hudAssault').textContent = '4 / 4 defended';
+  el('hudTurn').textContent = '—';
+  el('hudScore').textContent = `Score ${total}`;
 }
 
 /** A relic's glyph and name, from the content data. */
