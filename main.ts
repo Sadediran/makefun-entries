@@ -6,7 +6,7 @@
 //
 // Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output.
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -30,8 +30,14 @@ function main(): void {
   if (!existsSync(shotsSrc)) throw new Error('main.ts: screenshots/ is missing from the repository');
 
   // Start from a clean output directory so a stale file can never leak in.
-  rmSync(outDir, { recursive: true, force: true });
+  // Clear its CONTENTS, never the directory itself: in the grader /output is
+  // a volume mounted on a read-only root filesystem, so removing /output
+  // itself fails (EACCES on its read-only parent) and the run exits non-zero.
+  // v2.1's rmSync(outDir) did exactly that and was rejected for run_completes.
   mkdirSync(outDir, { recursive: true });
+  for (const entry of readdirSync(outDir)) {
+    rmSync(join(outDir, entry), { recursive: true, force: true });
+  }
   cpSync(gameSrc, join(outDir, 'game'), { recursive: true });
   cpSync(shotsSrc, join(outDir, 'screenshots'), { recursive: true });
 
