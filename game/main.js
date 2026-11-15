@@ -89,7 +89,9 @@ function startAssault(index) {
     audio.playBreach();
   }
   refresh();
-  if (index === 0 && state.turn === 1) {
+  if (state.placingMirror) {
+    ui.setHint('Place your new mirror — tap an empty cell.');
+  } else if (index === 0 && state.turn === 1) {
     ui.setHint('Tap a mirror to flip it, drag it to move it — then press FIRE.');
   } else {
     ui.setHint(`Assault ${index + 1} of 3 — the moths advance after every shot.`);
@@ -127,6 +129,19 @@ function resetProgress() {
   showMap();
 }
 
+/** After a tower win: go to the next undefended tower's intro. */
+function nextTower() {
+  const idx = TOWERS.findIndex((t) => t.id === tower.id);
+  for (let i = 1; i <= TOWERS.length; i++) {
+    const candidate = TOWERS[(idx + i) % TOWERS.length];
+    if (!campaign.defended.has(candidate.id)) {
+      startTower(candidate.id);
+      return;
+    }
+  }
+  showMap(); // all defended — the campaign win normally fires first
+}
+
 function startTower(towerId) {
   tower = towerById(towerId);
   screen = 'intro';
@@ -145,7 +160,7 @@ function beginRun() {
   particles = new Particles();
   beamAnim = null;
   banner = null;
-  selected = { c: tower.emitterCol, r: 3 };
+  selected = null; // the cursor appears only after a tap or an arrow key
   startAssault(0);
   audio.playClick();
 }
@@ -276,6 +291,7 @@ function craftDone() {
   draftOffers = draftOffer(tower, state.assaultIndex, state.relics);
   ui.renderDraft(draftOffers, draftPick);
   ui.showOverlay('draftOverlay');
+  ui.setHint('Choose a relic — it stays with you for the rest of this tower.');
   audio.playClick();
 }
 
@@ -311,8 +327,9 @@ function towerWon() {
     tower, grade, score: state.score, kills: state.kills, turn: state.turn,
     hearts: state.hearts, embersEarned: state.embersEarned, embersSpent: state.embersSpent,
     relicNames: state.relics.map((id) => relicById(id)?.name ?? id),
-  }, showMap, showMap);
+  }, nextTower, showMap);
   ui.showOverlay('towerWinOverlay');
+  ui.setHint('Tower defended — on to the next.');
 }
 
 /** All four towers defended: the campaign victory screen. */
@@ -330,8 +347,14 @@ function campaignWon() {
       score: campaign.results[t.id]?.score ?? save.towers[t.id]?.best ?? 0,
     })),
     relicNames: [...(campaign.allRelics ?? [])].map((id) => relicById(id)?.name ?? id),
-  }, showMap, showMap);
+  }, showMap, playAgain);
   ui.showOverlay('campaignWinOverlay');
+  ui.setHint('All four towers defended.');
+}
+
+/** After a campaign win: play again from the first tower. */
+function playAgain() {
+  startTower(TOWERS[0].id);
 }
 
 /** The tower fell: save the best score, show the defeat screen. */
@@ -353,6 +376,7 @@ function defeat() {
     tower, assaultIndex: state.assaultIndex, score: state.score, kills: state.kills, turn: state.turn, tip,
   }, beginRun, showMap);
   ui.showOverlay('defeatOverlay');
+  ui.setHint('The tower has fallen — try again, or pick another tower.');
 }
 
 // ---------------------------------------------------------------- pause
@@ -411,7 +435,8 @@ bindInput(canvas, {
     ui.el('soundBtn').textContent = m ? '🔇 Sound' : '🔊 Sound';
   },
   onCursorMove(dc, dr) {
-    if (screen !== 'play' || !selected) return;
+    if (screen !== 'play') return;
+    if (!selected) selected = { c: tower.emitterCol, r: 3 };
     selected = {
       c: Math.min(6, Math.max(0, selected.c + dc)),
       r: Math.min(6, Math.max(0, selected.r + dr)),
@@ -458,7 +483,7 @@ function frame(now) {
 
 window.GLASSKEEP = {
   version: VERSION,
-  traceBeam,
+  traceBeam() { return state ? traceBeam(state.board, state.moths) : null; },
   boardGeometry: BOARD,
   cellCentre,
   getState() {

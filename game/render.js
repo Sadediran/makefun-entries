@@ -7,7 +7,8 @@
 // The preview is the same trace the shot uses (rules.traceBeam), so what
 // the player sees is exactly what FIRE will do.
 
-import { COLS, ROWS, cellKey } from './content.js';
+import { COLS, ROWS } from './content.js';
+import { cellKey } from './rules.js';
 import { drawBackground } from './background.js';
 import { drawMoth } from './moths.js';
 import { isShielded } from './rules.js';

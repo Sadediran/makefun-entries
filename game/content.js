@@ -133,7 +133,7 @@ export const TOWERS = [
     palette: { bg0: '#120e1e', bg1: '#1d1430', glass: '#7a5ac8', beam: '#ffdd7a', accent: '#a88ae0', panel: '#160f26', text: '#e8dff8' },
     emitterCol: 3,
     mirrors: [ { c: 2, r: 4, o: '\\' }, { c: 4, r: 4, o: '/' }, { c: 3, r: 3, o: '/' }, { c: 1, r: 2, o: '\\' }, { c: 5, r: 2, o: '/' } ],
-    buttresses: [ { c: 3, r: 5 }, { c: 0, r: 3 }, { c: 6, r: 3 }, { c: 4, r: 1 } ],
+    buttresses: [ { c: 3, r: 4 }, { c: 0, r: 3 }, { c: 6, r: 3 }, { c: 4, r: 1 } ],
     lanes: [0, 1, 2, 3, 4, 5, 6],
     assaults: [
       { moths: ['silk', 'iron', 'powder', 'warden', 'silk', 'iron'], boss: null, bossCol: 3 },
