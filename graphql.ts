@@ -825,6 +825,12 @@ class Executor {
       }
       issue.state = 'closed';
       issue.updatedAt = trialNowIso();
+      // The REST view changed with the state: drop the cached JSON string.
+      // The other invalidation sites are the REST PATCH handler (app.ts)
+      // and comment creation (store.ts createComment); every mutation of
+      // an issue's REST-visible fields must clear jsonCache, or a later
+      // GET serves the stale string.
+      issue.jsonCache = null;
       return { __typename: 'CloseIssuePayload', issue: issueObject(store, repo, issue) };
     }
     if (field === 'createPullRequest') {

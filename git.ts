@@ -549,6 +549,58 @@ function sidebandPack(pack: Buffer): Buffer {
   return Buffer.concat(parts);
 }
 
+// ---------------------------------------------------------------- fetch cache
+
+/**
+ * A fetch's response is a pure function of the repo's objects plus the
+ * request's (wants, haves, depth, shallow boundaries, done): the objects in
+ * a want's closure are immutable, because commit ancestry is fixed when the
+ * commit is created — a later push can only add descendants, never new
+ * ancestors of an existing tip. So identical fetches always answer
+ * identically, and the clone workload's 50 concurrent depth-1 fetches of
+ * one repo are 50 identical requests. Cache the whole response Buffer per
+ * repo; the cap keeps a long trial's memory bounded (Map keeps insertion
+ * order, so the oldest entry goes first). A WeakMap lets a deleted repo's
+ * cache be collected with the repo itself.
+ */
+const FETCH_CACHE_LIMIT = 128;
+const fetchCache = new WeakMap<Repo, Map<string, Buffer>>();
+
+function fetchCacheKey(
+  protocol: 'v2' | 'v0',
+  wants: readonly string[],
+  haves: readonly string[],
+  depth: number | undefined,
+  shallow: readonly string[],
+  done: boolean,
+): string {
+  return [
+    protocol,
+    [...wants].sort().join(','),
+    [...haves].sort().join(','),
+    depth === undefined ? '' : String(depth),
+    [...shallow].sort().join(','),
+    done ? '1' : '0',
+  ].join('|');
+}
+
+function cachedFetch(repo: Repo, key: string, build: () => Buffer): Buffer {
+  let perRepo = fetchCache.get(repo);
+  if (perRepo === undefined) {
+    perRepo = new Map<string, Buffer>();
+    fetchCache.set(repo, perRepo);
+  }
+  const hit = perRepo.get(key);
+  if (hit !== undefined) return hit;
+  const built = build();
+  if (perRepo.size >= FETCH_CACHE_LIMIT) {
+    const oldest = perRepo.keys().next().value;
+    if (oldest !== undefined) perRepo.delete(oldest);
+  }
+  perRepo.set(key, built);
+  return built;
+}
+
 // ---------------------------------------------------------------- ls-refs
 
 function lsRefsResponse(store: Store, repo: Repo, args: readonly string[]): Buffer {
@@ -626,6 +678,19 @@ function fetchV2Response(store: Store, repo: Repo, args: readonly string[]): Buf
     else if (line.startsWith('deepen ')) depth = Number.parseInt(line.slice(7).trim(), 10);
     else if (line === 'done') done = true;
   }
+  const key = fetchCacheKey('v2', wants, haves, depth, shallow, done);
+  return cachedFetch(repo, key, () => buildFetchV2Response(store, repo, wants, haves, depth, shallow, done));
+}
+
+function buildFetchV2Response(
+  store: Store,
+  repo: Repo,
+  wants: readonly string[],
+  haves: readonly string[],
+  depth: number | undefined,
+  shallow: readonly string[],
+  done: boolean,
+): Buffer {
   const plan = planFetch(store, repo, wants, haves, depth, shallow);
   const pack = writePack(plan.objects);
   const parts: Buffer[] = [];
@@ -677,6 +742,19 @@ function fetchV0Response(store: Store, repo: Repo, args: readonly string[]): Buf
     else if (line.startsWith('deepen ')) depth = Number.parseInt(line.slice(7).trim(), 10);
     else if (line === 'done') done = true;
   }
+  const key = fetchCacheKey('v0', wants, haves, depth, shallow, done);
+  return cachedFetch(repo, key, () => buildFetchV0Response(store, repo, wants, haves, depth, shallow, done));
+}
+
+function buildFetchV0Response(
+  store: Store,
+  repo: Repo,
+  wants: readonly string[],
+  haves: readonly string[],
+  depth: number | undefined,
+  shallow: readonly string[],
+  done: boolean,
+): Buffer {
   const plan = planFetch(store, repo, wants, haves, depth, shallow);
   const parts: Buffer[] = [];
   if (plan.acks.length > 0) {
@@ -765,11 +843,12 @@ export function handleReceivePack(store: Store, repo: Repo | null, body: Buffer)
     }
     if (commands.length === 0) throw new Error('no commands');
     // Unpack: store every object the pack carries (even for refused refs).
+    // readPack already derived each oid from the object's own bytes, so no
+    // second hash is needed here to verify it.
     let unpackOk = true;
     if (rest.length > 0) {
       const objects = readPack(rest, (oid) => repo.objects.get(oid));
       for (const [oid, object] of objects) {
-        if (hashObject(object.type, object.data) !== oid) throw new Error('pack object hash mismatch');
         if (!repo.objects.has(oid)) repo.objects.set(oid, object);
       }
     }

@@ -51,32 +51,58 @@ function sendBuffer(res: ServerResponse, status: number, contentType: string, bo
 }
 
 function pathOf(req: IncomingMessage): string {
-  try {
-    return new URL(req.url ?? '/', 'http://entry').pathname;
-  } catch {
-    return '/';
+  const raw = req.url ?? '/';
+  // Absolute-form (a proxy-style full URL): fall back to URL parsing.
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      return new URL(raw).pathname;
+    } catch {
+      return '/';
+    }
   }
+  const q = raw.indexOf('?');
+  const path = q < 0 ? raw : raw.slice(0, q);
+  return path === '' ? '/' : path;
 }
 
-function queryOf(req: IncomingMessage): URLSearchParams {
-  try {
-    return new URL(req.url ?? '/', 'http://entry').searchParams;
-  } catch {
-    return new URLSearchParams();
-  }
+/**
+ * The request's query string, parsed lazily: most requests (the read and
+ * write workloads' issue calls, the git posts) carry no query at all, so
+ * building URLSearchParams for every request is wasted work. The parsed
+ * form is cached on the holder, so a request that reads it twice parses once.
+ */
+interface QueryHolder {
+  readonly search: string;
+  parsed: URLSearchParams | null;
+}
+
+function queryHolderOf(req: IncomingMessage): QueryHolder {
+  const raw = req.url ?? '/';
+  const q = raw.indexOf('?');
+  return { search: q < 0 ? '' : raw.slice(q + 1), parsed: null };
+}
+
+function queryOf(holder: QueryHolder): URLSearchParams {
+  if (holder.parsed === null) holder.parsed = new URLSearchParams(holder.search);
+  return holder.parsed;
 }
 
 function segmentsOf(path: string): string[] {
-  return path
-    .split('/')
-    .filter((s) => s !== '')
-    .map((s) => {
-      try {
-        return decodeURIComponent(s);
-      } catch {
-        return s;
-      }
-    });
+  const out: string[] = [];
+  for (const s of path.split('/')) {
+    if (s === '') continue;
+    // Most segments carry no escape: skip decodeURIComponent unless one does.
+    if (!s.includes('%')) {
+      out.push(s);
+      continue;
+    }
+    try {
+      out.push(decodeURIComponent(s));
+    } catch {
+      out.push(s);
+    }
+  }
+  return out;
 }
 
 function bearerToken(req: IncomingMessage): string | null {
@@ -136,10 +162,11 @@ function pageParams(query: URLSearchParams): { perPage: number; page: number } {
 /** Slice a list into a page and build the Link header (next/last). */
 function paginate<T>(
   items: readonly T[],
-  query: URLSearchParams,
+  queryHolder: QueryHolder,
   req: IncomingMessage,
   path: string,
 ): { page: T[]; link: string | null } {
+  const query = queryOf(queryHolder);
   const { perPage, page } = pageParams(query);
   const totalPages = Math.max(1, Math.ceil(items.length / perPage));
   const start = (page - 1) * perPage;
@@ -174,6 +201,17 @@ class Rest {
 
   json(status: number, body: unknown, extra: Record<string, string> = {}): void {
     sendJson(this.res, status, body, { 'x-github-request-id': this.requestId(), ...extra });
+  }
+
+  /** Answer with a pre-serialised JSON string (with its trailing newline). */
+  jsonRaw(status: number, text: string, extra: Record<string, string> = {}): void {
+    this.res.writeHead(status, {
+      'content-type': JSON_TYPE,
+      'content-length': Buffer.byteLength(text),
+      'x-github-request-id': this.requestId(),
+      ...extra,
+    });
+    this.res.end(text);
   }
 
   /** Answer with a status and no body (e.g. 204), keeping the request id. */
@@ -289,7 +327,7 @@ export function createApp(): Server {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const method = req.method ?? 'GET';
     const path = pathOf(req);
-    const query = queryOf(req);
+    const queryHolder = queryHolderOf(req);
     const segments = segmentsOf(path);
 
     try {
@@ -307,7 +345,7 @@ export function createApp(): Server {
         const sub = segments.slice(2).join('/');
         const gitProtocol = req.headers['git-protocol'];
         if (method === 'GET' && sub === 'info/refs') {
-          const service = query.get('service') ?? '';
+          const service = queryOf(queryHolder).get('service') ?? '';
           const answer = handleInfoRefs(store, repo, service, gitProtocol);
           sendBuffer(res, answer.status, answer.contentType, answer.body);
           return;
@@ -391,7 +429,7 @@ export function createApp(): Server {
           return;
         }
         const input = asRecord(parsed.value);
-        await handleRest(rest, store, method, api, query, input, req, path);
+        await handleRest(rest, store, method, api, queryHolder, input, req, path);
         return;
       }
 
@@ -415,7 +453,7 @@ async function handleRest(
   store: Store,
   method: string,
   api: string[],
-  query: URLSearchParams,
+  queryHolder: QueryHolder,
   input: Record<string, unknown>,
   req: IncomingMessage,
   path: string,
@@ -451,7 +489,7 @@ async function handleRest(
   if (api[0] === 'user' && api[1] === 'repos') {
     if (method === 'GET') {
       const repos = store.reposByOwner.get(VIEWER_LOGIN) ?? [];
-      const { page, link } = paginate(repos, query, req, path);
+      const { page, link } = paginate(repos, queryHolder, req, path);
       const extra: Record<string, string> = {};
       if (link !== null) extra.link = link;
       rest.json(200, page.map((repo) => store.repoJson(repo)), extra);
@@ -534,13 +572,13 @@ async function handleRest(
 
     // Commits.
     if (tail[0] === 'commits' && tail.length === 1 && method === 'GET') {
-      const tip = rest.resolveRef(repo, query.get('sha'));
+      const tip = rest.resolveRef(repo, queryOf(queryHolder).get('sha'));
       if (tip === null) {
         rest.json(200, []);
         return;
       }
       const commits = store.commitsFrom(repo, [tip]);
-      const { page } = paginate(commits, query, req, path);
+      const { page } = paginate(commits, queryHolder, req, path);
       rest.json(
         200,
         page.map((sha) => {
@@ -606,7 +644,7 @@ async function handleRest(
     if (tail[0] === 'contents') {
       const contentPath = tail.slice(1).join('/');
       if (method === 'GET') {
-        const tip = rest.resolveRef(repo, query.get('ref'));
+        const tip = rest.resolveRef(repo, queryOf(queryHolder).get('ref'));
         if (tip === null) {
           rest.notFound('Not Found');
           return;
@@ -749,15 +787,15 @@ async function handleRest(
           return;
         }
         if (method === 'GET') {
-          const state = (query.get('state') ?? 'open').toLowerCase();
+          const state = (queryOf(queryHolder).get('state') ?? 'open').toLowerCase();
           let list = [...repo.issues];
           if (state !== 'all') list = list.filter((issue) => issue.state === state);
-          const sort = query.get('sort') ?? 'created';
-          const direction = (query.get('direction') ?? 'desc').toLowerCase();
+          const sort = queryOf(queryHolder).get('sort') ?? 'created';
+          const direction = (queryOf(queryHolder).get('direction') ?? 'desc').toLowerCase();
           if (sort === 'created') {
             list.sort((a, b) => (direction === 'asc' ? a.number - b.number : b.number - a.number));
           }
-          const { page, link } = paginate(list, query, req, path);
+          const { page, link } = paginate(list, queryHolder, req, path);
           const extra: Record<string, string> = {};
           if (link !== null) extra.link = link;
           rest.json(200, page.map((issue) => store.issueJson(repo, issue)), extra);
@@ -778,7 +816,7 @@ async function handleRest(
           return;
         }
         if (method === 'GET') {
-          rest.json(200, store.issueJson(repo, issue));
+          rest.jsonRaw(200, store.issueJsonString(repo, issue));
           return;
         }
         if (method === 'PATCH') {
@@ -786,6 +824,7 @@ async function handleRest(
           if (typeof input.title === 'string') issue.title = input.title;
           if (typeof input.body === 'string') issue.body = input.body;
           issue.updatedAt = trialNowIso();
+          issue.jsonCache = null; // title, body, state or updatedAt changed
           rest.json(200, store.issueJson(repo, issue));
           return;
         }
@@ -859,11 +898,11 @@ async function handleRest(
           return;
         }
         if (method === 'GET') {
-          const state = (query.get('state') ?? 'open').toLowerCase();
+          const state = (queryOf(queryHolder).get('state') ?? 'open').toLowerCase();
           let list = [...repo.pulls];
           if (state !== 'all') list = list.filter((pull) => pull.state === state);
           list.sort((a, b) => b.number - a.number);
-          const { page, link } = paginate(list, query, req, path);
+          const { page, link } = paginate(list, queryHolder, req, path);
           const extra: Record<string, string> = {};
           if (link !== null) extra.link = link;
           rest.json(200, page.map((pull) => store.pullJson(repo, pull)), extra);

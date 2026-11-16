@@ -165,6 +165,16 @@ export interface Issue {
   readonly seq: number;
   readonly createdAt: string;
   updatedAt: string;
+  /**
+   * The issue's cached REST JSON (with trailing newline), or null when it
+   * must be rebuilt. The read workload GETs one issue 2,000 times, and the
+   * JSON never changes between mutations, so caching it skips the object
+   * build and the stringify on every read. Cleared on any mutation: PATCH
+   * (title/body/state/updatedAt) and comment creation (comments count).
+   * Labels never change after creation (no label PATCH or DELETE exists),
+   * so they need no invalidation.
+   */
+  jsonCache: string | null;
 }
 
 export interface Pull {
@@ -538,6 +548,7 @@ export class Store {
       seq: this.nextSeq(),
       createdAt: now,
       updatedAt: now,
+      jsonCache: null,
     };
     repo.issues.push(issue);
     repo.issuesByNumber.set(issue.number, issue);
@@ -547,6 +558,7 @@ export class Store {
   createComment(issue: Issue, body: string): Comment {
     const comment: Comment = { id: this.nextCommentId++, body, user: VIEWER_LOGIN };
     issue.comments.push(comment);
+    issue.jsonCache = null; // the comments count changed
     return comment;
   }
 
@@ -679,6 +691,21 @@ export class Store {
       milestone: null,
       locked: false,
     };
+  }
+
+  /**
+   * The issue's REST JSON as a string (with trailing newline, as sendJson
+   * emits it), cached on the issue. The first call builds it from issueJson
+   * and caches it; later calls return the cached string until a mutation
+   * clears it. Only for single-issue responses — list responses need the
+   * object form, which issueJson still builds fresh.
+   */
+  issueJsonString(repo: Repo, issue: Issue): string {
+    const cached = issue.jsonCache;
+    if (cached !== null) return cached;
+    const text = `${JSON.stringify(this.issueJson(repo, issue))}\n`;
+    issue.jsonCache = text;
+    return text;
   }
 
   pullJson(repo: Repo, pull: Pull): Record<string, unknown> {
