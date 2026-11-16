@@ -1,387 +1,388 @@
 #!/usr/bin/env python3
-"""Solar Juicer - ai-excited-01.
+"""Solar Juicer, enhanced (attempt 4, draft 1).
 
-A colossal black citrus press, bolted to Earth's curved blue horizon,
-squeezes the sun into a white-hot S-shaped torrent that crashes into a
-broad splash pool in the foreground.
-
-Pure Python standard library (hashlib, math, os, struct, zlib).
-Deterministic: fixed coordinates, sampled Bezier curves and a
-fixed-seed star placement - no randomness, no clock, no network.
-Renders at 2x and downsamples to exactly 1024x1024; writes
-/output/entry.png (or $MAKEFUN_OUTPUT_DIR/entry.png).
+A colossal black citrus press squeezes the sun; a white-hot S-shaped
+torrent pours out and pools below. Stdlib only, deterministic output.
+Writes a 1024x1024 PNG to $MAKEFUN_OUTPUT_DIR/entry.png (default ./out).
 """
-
-import hashlib
-import math
 import os
 import struct
 import zlib
 
-SS = 2                  # supersample factor
-SIZE = 1024             # output size in pixels
-W = SIZE * SS
-H = SIZE * SS
+W = 1024
+H = 1024
+OUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "out")
 
-# ---------------------------------------------------------------- palette
-SKY_TOP = (4, 6, 13)
-SKY_HORIZON = (10, 20, 36)
-EARTH_TOP = (28, 77, 146)
-EARTH_BOTTOM = (13, 42, 88)
-RIM_BRIGHT = (99, 184, 255)
-RIM_DIM = (29, 95, 174)
-DISC = (21, 16, 9)
-DISC_RIM = (38, 27, 17)
-MACHINE = (10, 10, 12)
-MACHINE_EDGE = (38, 42, 51)
-MACHINE_SOFT = (14, 14, 16)
-BOLT = (51, 55, 63)
-BOLT_DARK = (20, 22, 26)
-GOLD_LINE = (217, 164, 65)
-GOLD_DARK = (201, 147, 47)
-SUN_HALO = (58, 28, 8)
-ORANGE = (249, 115, 22)
-GOLD = (245, 166, 35)
-YELLOW = (253, 224, 71)
-PALE = (254, 249, 195)
-WHITE = (255, 255, 255)
-CREAM = (255, 253, 240)
-STAR = (232, 238, 252)
-STAR_DIM = (159, 180, 216)
-SHADOW = (5, 7, 13)
-
-# ---------------------------------------------------------------- canvas
+# ---------------------------------------------------------------- pixels
 buf = bytearray(W * H * 3)
 
 
-def _s(v):
-    """Scale a 1024-space coordinate to internal (2x) pixels."""
-    return int(round(v * SS))
+def put(x, y, r, g, b):
+    if 0 <= x < W and 0 <= y < H:
+        i = (y * W + x) * 3
+        buf[i] = r
+        buf[i + 1] = g
+        buf[i + 2] = b
 
 
-def run(y, x0, x1, rgb):
-    """Fill one horizontal run of internal pixels with a solid colour."""
-    if y < 0 or y >= H or x1 < x0:
-        return
-    if x0 < 0:
-        x0 = 0
-    if x1 >= W:
-        x1 = W - 1
-    if x1 < x0:
-        return
-    n = x1 - x0 + 1
-    start = (y * W + x0) * 3
-    buf[start:start + n * 3] = bytes(rgb) * n
-
-
-def rect(x0, y0, x1, y1, rgb):
-    """Fill a rectangle given in 1024-space coordinates."""
-    for y in range(_s(y0), _s(y1) + 1):
-        run(y, _s(x0), _s(x1), rgb)
-
-
-def ellipse(cx, cy, rx, ry, rgb):
-    """Fill an ellipse given in 1024-space coordinates."""
-    cx, cy, rx, ry = _s(cx), _s(cy), _s(rx), _s(ry)
-    for y in range(cy - ry, cy + ry + 1):
-        if y < 0 or y >= H:
-            continue
-        t = (y - cy) / ry
-        dx = rx * math.sqrt(max(0.0, 1.0 - t * t))
-        run(y, int(cx - dx), int(cx + dx), rgb)
-
-
-def polygon(points, rgb):
-    """Fill a polygon given in 1024-space coordinates (scanline fill)."""
-    pts = [(_s(x), _s(y)) for x, y in points]
-    edges = []
-    n = len(pts)
-    for i in range(n):
-        x0, y0 = pts[i]
-        x1, y1 = pts[(i + 1) % n]
-        if y0 == y1:
-            continue
-        if y0 > y1:
-            x0, y0, x1, y1 = x1, y1, x0, y0
-        edges.append((y0, y1, x0, x1))
-    ymin = min(y for _, y in pts)
-    ymax = max(y for _, y in pts)
-    for y in range(max(0, ymin), min(H, ymax + 1)):
-        xs = []
-        for y0, y1, x0, x1 in edges:
-            if y0 <= y < y1:
-                t = (y - y0) / (y1 - y0)
-                xs.append(x0 + t * (x1 - x0))
-        if len(xs) < 2:
-            continue
-        xs.sort()
-        for i in range(0, len(xs) - 1, 2):
-            run(y, int(xs[i]), int(xs[i + 1]), rgb)
-
-
-def lerp(c0, c1, t):
-    """Linear blend between two RGB colours; t in [0, 1]."""
-    if t < 0.0:
-        t = 0.0
-    elif t > 1.0:
-        t = 1.0
-    return (round(c0[0] + (c1[0] - c0[0]) * t),
-            round(c0[1] + (c1[1] - c0[1]) * t),
-            round(c0[2] + (c1[2] - c0[2]) * t))
-
-
-# ---------------------------------------------------------------- curves
-def cubic(p0, p1, p2, p3, steps):
-    """Sample a cubic Bezier curve into a list of (x, y) points."""
-    pts = []
-    for i in range(steps + 1):
-        t = i / steps
-        u = 1.0 - t
-        x = (u ** 3 * p0[0] + 3 * u * u * t * p1[0]
-             + 3 * u * t * t * p2[0] + t ** 3 * p3[0])
-        y = (u ** 3 * p0[1] + 3 * u * u * t * p1[1]
-             + 3 * u * t * t * p2[1] + t ** 3 * p3[1])
-        pts.append((x, y))
-    return pts
-
-
-def stream_polygon(centre, widths):
-    """Outline polygon of a stream of varying half-width around a centreline."""
-    left = []
-    right = []
-    n = len(centre)
-    for i, (x, y) in enumerate(centre):
-        xa, ya = centre[max(0, i - 1)]
-        xb, yb = centre[min(n - 1, i + 1)]
-        dx, dy = xb - xa, yb - ya
-        ln = math.hypot(dx, dy) or 1.0
-        nx, ny = -dy / ln, dx / ln
-        w = widths[i]
-        left.append((x + nx * w, y + ny * w))
-        right.append((x - nx * w, y - ny * w))
-    return left + right[::-1]
-
-
-# ---------------------------------------------------------------- scene
-def horizon_y(x):
-    """Earth's horizon: 555 at the frame edges, sagging to 620 at centre."""
-    d = (x - 512.0) / 512.0
-    return 620.0 - 65.0 * d * d
-
-
-def draw_sky_and_stars():
-    # Vertical gradient, near-black at the top, deep navy at the horizon.
-    for yi in range(H):
-        y = yi / SS
-        t = y / 620.0
-        run(yi, 0, W - 1, lerp(SKY_TOP, SKY_HORIZON, t))
-    # Fixed-seed stars (deterministic LCG, no randomness at run time).
-    state = 12345
-    for _ in range(60):
-        state = (1103515245 * state + 12345) & 0x7FFFFFFF
-        sx = 20 + state % 984
-        state = (1103515245 * state + 12345) & 0x7FFFFFFF
-        sy = 12 + state % 480
-        state = (1103515245 * state + 12345) & 0x7FFFFFFF
-        r = 1 if state % 3 else 2
-        colour = STAR if state % 4 else STAR_DIM
-        ellipse(sx, sy, r, r, colour)
-
-
-def draw_earth():
-    # Earth fills everything below the horizon arc.
-    for yi in range(H):
-        y = yi / SS
-        if y < 555.0:
-            continue
-        t = (y - 560.0) / (1024.0 - 560.0)
-        colour = lerp(EARTH_TOP, EARTH_BOTTOM, t)
-        if y >= 620.0:
-            run(yi, 0, W - 1, colour)
+def blend(x, y, r, g, b, a):
+    """Alpha-blend colour (r,g,b) with opacity a (0..1) onto pixel."""
+    if 0 <= x < W and 0 <= y < H and a > 0.0:
+        i = (y * W + x) * 3
+        if a >= 1.0:
+            buf[i] = r
+            buf[i + 1] = g
+            buf[i + 2] = b
         else:
-            a = 512.0 * math.sqrt((620.0 - y) / 65.0)
-            run(yi, 0, int(512 - a), colour)
-            run(yi, int(512 + a), W - 1, colour)
-    # Atmospheric rim: a dim glow band with a bright core line on it.
-    for xi in range(W):
-        x = xi / SS
-        hy = horizon_y(x)
-        run(_s(hy - 7), xi, xi, RIM_DIM)
-        run(_s(hy - 6), xi, xi, RIM_DIM)
-        run(_s(hy - 5), xi, xi, RIM_DIM)
-        run(_s(hy - 4), xi, xi, RIM_DIM)
-        run(_s(hy - 3), xi, xi, RIM_DIM)
-        run(_s(hy - 2), xi, xi, RIM_BRIGHT)
-        run(_s(hy - 1), xi, xi, RIM_BRIGHT)
-        run(_s(hy), xi, xi, RIM_BRIGHT)
-        run(_s(hy + 1), xi, xi, RIM_BRIGHT)
-        run(_s(hy + 2), xi, xi, RIM_BRIGHT)
-        run(_s(hy + 3), xi, xi, RIM_DIM)
-        run(_s(hy + 4), xi, xi, RIM_DIM)
-        run(_s(hy + 5), xi, xi, RIM_DIM)
-        run(_s(hy + 6), xi, xi, RIM_DIM)
-        run(_s(hy + 7), xi, xi, RIM_DIM)
+            buf[i] = int(buf[i] * (1.0 - a) + r * a)
+            buf[i + 1] = int(buf[i + 1] * (1.0 - a) + g * a)
+            buf[i + 2] = int(buf[i + 2] * (1.0 - a) + b * a)
 
 
-def draw_disc():
-    # The press's dark backplate: a huge near-black disc behind the sun.
-    ellipse(430, 290, 310, 310, DISC_RIM)
-    ellipse(430, 290, 303, 303, DISC)
+def lerp(a, b, t):
+    return a + (b - a) * t
 
 
-def draw_press():
-    # Left post with a lit edge, and the support strut beside it.
-    rect(150, 95, 205, 560, MACHINE)
-    rect(150, 95, 154, 560, MACHINE_EDGE)
-    rect(201, 95, 205, 560, (26, 29, 36))
-    rect(228, 205, 252, 448, MACHINE_SOFT)
-    # T-handle on top.
-    rect(398, 45, 424, 135, MACHINE)
-    rect(352, 42, 458, 60, (13, 13, 15))
-    rect(352, 42, 458, 45, MACHINE_EDGE)
-    # Top beam.
-    rect(95, 135, 625, 205, MACHINE)
-    rect(95, 135, 625, 138, MACHINE_EDGE)
+def clamp(v, lo, hi):
+    return lo if v < lo else hi if v > hi else v
 
 
-def draw_sun():
-    # Flattened sun, squeezed between the press jaws: orange out to a
-    # white-hot stellar core. No fruit-like rind, no text.
-    ellipse(430, 330, 252, 156, SUN_HALO)
-    ellipse(430, 330, 218, 132, ORANGE)
-    ellipse(430, 330, 198, 118, GOLD)
-    ellipse(430, 330, 172, 100, YELLOW)
-    ellipse(430, 330, 148, 82, PALE)
-    ellipse(430, 330, 126, 66, WHITE)
+def fill_rect(x0, y0, x1, y1, col):
+    x0 = max(0, x0)
+    y0 = max(0, y0)
+    x1 = min(W, x1)
+    y1 = min(H, y1)
+    r, g, b = col
+    for y in range(y0, y1):
+        base = y * W * 3
+        for x in range(x0, x1):
+            i = base + x * 3
+            buf[i] = r
+            buf[i + 1] = g
+            buf[i + 2] = b
 
 
-def draw_jaw_and_gold():
-    # Bottom jaw, overlapping the sun's flattened base.
-    polygon([(268, 445), (622, 445), (585, 548), (305, 548)], MACHINE)
-    # Gold seams: under the beam, above the jaw, the strut edge, one dash.
-    rect(98, 205, 622, 209, GOLD_LINE)
-    rect(272, 441, 618, 445, GOLD_LINE)
-    rect(252, 210, 257, 448, GOLD_LINE)
-    rect(560, 478, 618, 482, GOLD_DARK)
-    # Bolts at the foot of the left post.
-    ellipse(182, 545, 9, 9, BOLT)
-    ellipse(182, 545, 4, 4, BOLT_DARK)
-    ellipse(228, 548, 9, 9, BOLT)
-    ellipse(228, 548, 4, 4, BOLT_DARK)
+def fill_circle(cx, cy, rad, col, alpha=1.0):
+    r0 = max(0, int(cx - rad))
+    r1 = min(W - 1, int(cx + rad) + 1)
+    t0 = max(0, int(cy - rad))
+    t1 = min(H - 1, int(cy + rad) + 1)
+    rr = rad * rad
+    for y in range(t0, t1):
+        dy = y - cy
+        for x in range(r0, r1):
+            dx = x - cx
+            if dx * dx + dy * dy <= rr:
+                if alpha >= 1.0:
+                    put(x, y, *col)
+                else:
+                    blend(x, y, *col, alpha)
 
 
-def draw_torrent():
-    # S-shaped torrent: out of the press, arcing right and down, then
-    # bending back left to crash into the pool. Layered orange / gold /
-    # yellow / white-hot core, widening into a flare at the impact.
-    centre = (cubic((605, 448), (790, 455), (872, 560), (848, 692), 40)
-              + cubic((848, 692), (824, 812), (682, 868), (572, 892), 40)[1:])
-    n = len(centre)
-    widths = []
-    for i in range(n):
-        u = i / (n - 1)
-        widths.append(45.0 + 20.0 * math.sin(math.pi * u) + 20.0 * u * u)
-    polygon(stream_polygon(centre, widths), ORANGE)
-    polygon(stream_polygon(centre, [w * 0.74 for w in widths]), GOLD)
-    polygon(stream_polygon(centre, [w * 0.50 for w in widths]), YELLOW)
-    polygon(stream_polygon(centre, [w * 0.26 for w in widths]), WHITE)
-    # Two splash flicks, both overlapping the stream's edge: nothing
-    # hangs in mid-air.
-    polygon([(838, 758), (872, 792), (842, 800)], ORANGE)
-    polygon([(846, 768), (862, 786), (846, 792)], GOLD)
-    polygon([(736, 838), (772, 872), (740, 880)], ORANGE)
-    polygon([(744, 848), (758, 866), (744, 872)], GOLD)
+def fill_ellipse(cx, cy, rx, ry, col, alpha=1.0):
+    r0 = max(0, int(cx - rx))
+    r1 = min(W - 1, int(cx + rx) + 1)
+    t0 = max(0, int(cy - ry))
+    t1 = min(H - 1, int(cy + ry) + 1)
+    for y in range(t0, t1):
+        dy = (y - cy) / ry
+        for x in range(r0, r1):
+            dx = (x - cx) / rx
+            if dx * dx + dy * dy <= 1.0:
+                if alpha >= 1.0:
+                    put(x, y, *col)
+                else:
+                    blend(x, y, *col, alpha)
 
 
-def draw_pool():
-    # Broad foreground splash pool with a white-hot impact zone.
-    ellipse(470, 968, 405, 52, SHADOW)
-    ellipse(480, 928, 388, 74, ORANGE)
-    ellipse(480, 925, 342, 62, GOLD)
-    ellipse(480, 922, 272, 48, YELLOW)
-    ellipse(565, 908, 128, 28, CREAM)
-    # Four-point starburst at the impact point.
-    polygon([(565, 870), (557, 902), (565, 934), (573, 902)], WHITE)
-    polygon([(529, 902), (565, 894), (601, 902), (565, 910)], WHITE)
-    # Crown spikes rising from the pool's rim, bases buried in the pool.
-    spikes = [
-        ((222, 908), (264, 908), (243, 772), (234, 906), (254, 906), (243, 800)),
-        ((317, 906), (351, 906), (335, 798), (326, 904), (344, 904), (335, 822)),
-        ((405, 902), (447, 902), (428, 722), (416, 900), (438, 900), (428, 762)),
-        ((604, 896), (642, 896), (625, 742), (614, 894), (634, 894), (625, 778)),
-        ((688, 894), (718, 894), (705, 796), (696, 892), (712, 892), (705, 822)),
-        ((750, 892), (778, 892), (764, 828), (756, 890), (770, 890), (764, 848)),
-    ]
-    for (bx0, by0), (bx1, by1), (tx, ty), (ix0, iy0), (ix1, iy1), (itx, ity) in spikes:
-        polygon([(bx0, by0), (bx1, by1), (tx, ty)], GOLD)
-        polygon([(ix0, iy0), (ix1, iy1), (itx, ity)], WHITE)
+def fill_poly(points, col, alpha=1.0):
+    """Scanline polygon fill. points: list of (x, y)."""
+    if len(points) < 3:
+        return
+    ys = [p[1] for p in points]
+    y0 = max(0, int(min(ys)))
+    y1 = min(H - 1, int(max(ys)) + 1)
+    n = len(points)
+    for y in range(y0, y1 + 1):
+        xs = []
+        for i in range(n):
+            x1, y1p = points[i]
+            x2, y2p = points[(i + 1) % n]
+            if (y1p <= y < y2p) or (y2p <= y < y1p):
+                t = (y - y1p) / (y2p - y1p)
+                xs.append(x1 + t * (x2 - x1))
+        xs.sort()
+        for k in range(0, len(xs) - 1, 2):
+            xa = max(0, int(xs[k]))
+            xb = min(W - 1, int(xs[k + 1]) + 1)
+            for x in range(xa, xb):
+                if alpha >= 1.0:
+                    put(x, y, *col)
+                else:
+                    blend(x, y, *col, alpha)
 
 
-def build():
-    draw_sky_and_stars()
-    draw_earth()
-    draw_disc()
-    draw_press()
-    draw_sun()
-    draw_jaw_and_gold()
-    draw_torrent()
-    draw_pool()
+def thick_line(x0, y0, x1, y1, rad, col, alpha=1.0):
+    """A thick segment drawn as a chain of filled circles."""
+    dx = x1 - x0
+    dy = y1 - y0
+    dist = (dx * dx + dy * dy) ** 0.5
+    steps = max(1, int(dist / max(1.0, rad * 0.45)))
+    for s in range(steps + 1):
+        t = s / steps
+        fill_circle(x0 + dx * t, y0 + dy * t, rad, col, alpha)
 
 
-# ---------------------------------------------------------------- output
-def downsample():
-    """Average each 2x2 block of the 2x render down to 1024x1024."""
-    out = bytearray(SIZE * SIZE * 3)
-    b = buf
-    for oy in range(SIZE):
-        sy = oy * 2
-        row0 = sy * W * 3
-        row1 = (sy + 1) * W * 3
-        orow = oy * SIZE * 3
-        for ox in range(SIZE):
-            sx = ox * 2 * 3
-            i0 = row0 + sx
-            i2 = row1 + sx
-            o = orow + ox * 3
-            out[o] = (b[i0] + b[i0 + 3] + b[i2] + b[i2 + 3]) // 4
-            out[o + 1] = (b[i0 + 1] + b[i0 + 4] + b[i2 + 1] + b[i2 + 4]) // 4
-            out[o + 2] = (b[i0 + 2] + b[i0 + 5] + b[i2 + 2] + b[i2 + 5]) // 4
-    return out
+def bezier(p0, p1, p2, p3, t):
+    mt = 1.0 - t
+    x = (mt ** 3 * p0[0] + 3 * mt * mt * t * p1[0]
+         + 3 * mt * t * t * p2[0] + t ** 3 * p3[0])
+    y = (mt ** 3 * p0[1] + 3 * mt * mt * t * p1[1]
+         + 3 * mt * t * t * p2[1] + t ** 3 * p3[1])
+    return x, y
 
 
-def write_png(path, data, w, h):
-    """Write 8-bit RGB data as a deterministic PNG; return its byte size."""
+# ---------------------------------------------------------------- palette
+INK = (13, 11, 18)          # press black
+INK_EDGE = (58, 44, 66)     # faint rim on the press
+SUN_CORE = (255, 226, 110)
+SUN_MID = (255, 178, 44)
+SUN_EDGE = (255, 110, 26)
+TORRENT_CORE = (255, 250, 226)
+TORRENT_MID = (255, 210, 60)
+TORRENT_EDGE = (255, 140, 26)
+POOL_CORE = (255, 246, 205)
+SKY_TOP = (26, 16, 51)
+SKY_MID = (94, 38, 96)
+SKY_LOW = (255, 138, 60)
+CITY = (52, 32, 66)
+
+# ---------------------------------------------------------------- sky
+for y in range(H):
+    t = y / (H - 1)
+    if t < 0.55:
+        u = t / 0.55
+        r = int(lerp(SKY_TOP[0], SKY_MID[0], u))
+        g = int(lerp(SKY_TOP[1], SKY_MID[1], u))
+        b = int(lerp(SKY_TOP[2], SKY_MID[2], u))
+    else:
+        u = (t - 0.55) / 0.45
+        r = int(lerp(SKY_MID[0], SKY_LOW[0], u))
+        g = int(lerp(SKY_MID[1], SKY_LOW[1], u))
+        b = int(lerp(SKY_MID[2], SKY_LOW[2], u))
+    base = y * W * 3
+    for x in range(W):
+        buf[base + x * 3] = r
+        buf[base + x * 3 + 1] = g
+        buf[base + x * 3 + 2] = b
+
+# faint stars in the upper sky
+stars = [(80, 60), (150, 130), (240, 50), (330, 90), (700, 70), (820, 110),
+         (920, 60), (880, 190), (120, 220), (960, 260), (60, 330), (420, 40)]
+for sx, sy in stars:
+    fill_circle(sx, sy, 2, (255, 240, 200), 0.85)
+
+# ---------------------------------------------------------------- distant city
+city = [(0, 700, 90, 760), (100, 660, 170, 760), (180, 710, 250, 760),
+        (770, 690, 850, 760), (860, 650, 940, 760), (950, 705, 1024, 760)]
+for x0, y0, x1, y1 in city:
+    fill_rect(x0, y0, x1, y1, CITY)
+    # a few lit windows
+    for wy in range(y0 + 14, y1 - 8, 26):
+        for wx in range(x0 + 12, x1 - 10, 30):
+            if (wx * 7 + wy * 13) % 5 == 0:
+                fill_rect(wx, wy, wx + 6, wy + 8, (255, 196, 90))
+
+# ---------------------------------------------------------------- the sun (citrus)
+SUN_C = (512, 330)
+# halo
+for rad, a in ((260, 0.10), (230, 0.14), (200, 0.18)):
+    fill_circle(SUN_C[0], SUN_C[1], rad, SUN_EDGE, a)
+# disc with radial shading
+for y in range(SUN_C[1] - 160, SUN_C[1] + 161):
+    dy = y - SUN_C[1]
+    for x in range(SUN_C[0] - 170, SUN_C[0] + 171):
+        dx = x - SUN_C[0]
+        d = ((dx / 170.0) ** 2 + (dy / 145.0) ** 2) ** 0.5
+        if d <= 1.0:
+            if d < 0.45:
+                t = d / 0.45
+                col = (int(lerp(SUN_CORE[0], SUN_MID[0], t)),
+                       int(lerp(SUN_CORE[1], SUN_MID[1], t)),
+                       int(lerp(SUN_CORE[2], SUN_MID[2], t)))
+            else:
+                t = (d - 0.45) / 0.55
+                col = (int(lerp(SUN_MID[0], SUN_EDGE[0], t)),
+                       int(lerp(SUN_MID[1], SUN_EDGE[1], t)),
+                       int(lerp(SUN_MID[2], SUN_EDGE[2], t)))
+            put(x, y, *col)
+# citrus segments: pale radial wedges from the centre
+import math
+for k in range(10):
+    ang = k * math.pi / 5.0
+    x1 = SUN_C[0] + 150 * math.cos(ang)
+    y1 = SUN_C[1] + 128 * math.sin(ang)
+    thick_line(SUN_C[0], SUN_C[1], x1, y1, 3, (255, 236, 150), 0.55)
+fill_circle(SUN_C[0], SUN_C[1], 26, (255, 240, 170))
+# pips: two small dark seeds near the centre
+fill_ellipse(486, 312, 7, 11, (120, 60, 20))
+fill_ellipse(540, 352, 7, 11, (120, 60, 20))
+
+# ---------------------------------------------------------------- the press
+# top screw + crossbar handle
+fill_rect(498, 18, 526, 96, INK)
+fill_rect(420, 34, 604, 52, INK)
+fill_circle(420, 43, 10, INK)
+fill_circle(604, 43, 10, INK)
+# top beam pressing down on the sun
+fill_poly([(176, 96), (848, 96), (812, 168), (212, 168)], INK)
+# rim light on the beam's lower edge
+thick_line(212, 168, 812, 168, 3, INK_EDGE, 0.9)
+# side columns (legs)
+fill_rect(196, 168, 236, 800, INK)
+fill_rect(788, 168, 828, 800, INK)
+# rim light on inner edges of the columns
+thick_line(236, 180, 236, 790, 2, INK_EDGE, 0.7)
+thick_line(788, 180, 788, 790, 2, INK_EDGE, 0.7)
+# lower press plate / bowl under the sun
+fill_poly([(300, 452), (724, 452), (676, 528), (348, 528)], INK)
+fill_ellipse(512, 528, 168, 26, INK)
+# spout where the torrent leaves the bowl
+fill_rect(498, 528, 526, 556, INK)
+
+# ---------------------------------------------------------------- rooftop
+# The press stands on an ordinary rooftop: a muted surface, a low parapet
+# along the bottom edge, and one clothesline with laundry (left side).
+ROOF = (64, 44, 66)
+PARAPET = (34, 24, 42)
+PARAPET_TOP = (88, 62, 88)
+fill_rect(0, 860, W, 940, ROOF)
+fill_rect(0, 940, W, H, PARAPET)
+thick_line(0, 940, W, 940, 2, PARAPET_TOP, 0.9)
+# a couple of roof seams / vents, kept dark and quiet
+fill_rect(60, 880, 130, 886, (48, 34, 52))
+fill_rect(880, 876, 950, 882, (48, 34, 52))
+# clothesline: poles + sagging line, shirt + towel hanging
+fill_rect(56, 786, 62, 862, (40, 28, 46))
+fill_rect(326, 770, 332, 862, (40, 28, 46))
+thick_line(60, 788, 330, 772, 2, (210, 196, 180), 0.9)
+# towel (left, hangs from the line)
+fill_poly([(104, 790), (140, 788), (140, 826), (104, 828)], (206, 196, 182))
+thick_line(104, 806, 140, 804, 2, (170, 150, 140), 0.8)
+# shirt (right, body + short sleeves)
+fill_poly([(238, 782), (292, 779), (300, 792), (288, 800), (288, 830),
+           (244, 832), (244, 800), (232, 792)], (148, 158, 176))
+thick_line(244, 800, 288, 798, 2, (110, 120, 140), 0.7)
+
+# ---------------------------------------------------------------- the torrent (S-curve)
+P0 = (512, 548)
+P1 = (660, 630)
+P2 = (400, 720)
+P3 = (556, 856)
+N = 90
+pts = [bezier(P0, P1, P2, P3, i / N) for i in range(N + 1)]
+# glow halo
+for i in range(N):
+    t = i / N
+    rad = lerp(46, 30, t)
+    thick_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+               rad, TORRENT_EDGE, 0.28)
+# mid body
+for i in range(N):
+    t = i / N
+    rad = lerp(34, 22, t)
+    thick_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+               rad, TORRENT_MID, 1.0)
+# white-hot core
+for i in range(N):
+    t = i / N
+    rad = lerp(17, 10, t)
+    thick_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+               rad, TORRENT_CORE, 1.0)
+
+# ---------------------------------------------------------------- landing pool (compact)
+fill_ellipse(556, 874, 96, 28, TORRENT_MID)
+fill_ellipse(556, 869, 74, 19, POOL_CORE)
+fill_ellipse(556, 865, 44, 11, (255, 252, 235))
+# small crown where the torrent strikes
+fill_ellipse(556, 850, 24, 10, TORRENT_CORE)
+# sparse spray: short streaks in motion, attached to the torrent / pool
+spray = [((470, 838), (442, 822), TORRENT_MID, 4),
+         ((646, 830), (676, 812), TORRENT_MID, 4),
+         ((486, 566), (462, 548), TORRENT_CORE, 3),
+         ((596, 640), (622, 626), TORRENT_CORE, 3),
+         ((480, 700), (458, 688), TORRENT_MID, 3)]
+for (sx0, sy0), (sx1, sy1), scol, srad in spray:
+    thick_line(sx0, sy0, sx1, sy1, srad, scol, 0.95)
+
+# ---------------------------------------------------------------- reacting humans
+# Broad, separated black silhouettes at the base of the press -- no faces,
+# no fingers, just bold recoil / shielding gestures. Principal figure is
+# ~58 px tall (5.7% of the image). All clear of the press legs and torrent.
+FIG = (10, 8, 16)
+
+
+def figure(x, feet, h, lean, arm_up, arm_back):
+    """Silhouette figure.
+
+    x, feet: ground position. h: total height in px. lean: horizontal
+    shift of the shoulders (negative = leaning back to the left).
+    arm_up: if True, one arm raised to shield the eyes; arm_back: if
+    True, the other arm flung back/down in recoil.
+    """
+    hip_y = feet - int(h * 0.52)
+    sho_y = feet - int(h * 0.82)
+    sho_x = x + lean
+    head_y = feet - int(h * 0.93)
+    head_r = max(6, int(h * 0.13))
+    torso_r = max(5, int(h * 0.11))
+    limb_r = max(4, int(h * 0.07))
+    arm_r = max(4, int(h * 0.06))
+    # legs: two clearly separated strides
+    thick_line(x - 2, hip_y, x - 10, feet, limb_r, FIG)
+    thick_line(x + 2, hip_y, x + 10, feet, limb_r, FIG)
+    # torso (leaning)
+    thick_line(x, hip_y, sho_x, sho_y, torso_r, FIG)
+    # head
+    fill_circle(sho_x + lean // 2, head_y, head_r, FIG)
+    # shielding arm: raised high beside the head, clearly separated
+    if arm_up:
+        hx = sho_x + lean * 2 - head_r * 2
+        thick_line(sho_x, sho_y, hx, head_y - head_r - 4, arm_r, FIG)
+    # recoiling arm: flung back and out, nearly horizontal
+    if arm_back:
+        bx = sho_x - lean - int(h * 0.32)
+        thick_line(sho_x, sho_y, bx, sho_y + int(h * 0.12), arm_r, FIG)
+
+
+# principal: backing away from the washing, shielding her eyes (left)
+figure(172, 926, 60, -8, True, True)
+# second: on the right, both arms thrown up, leaning away from the press
+figure(862, 930, 50, 7, True, True)
+# third: far right, smaller, one hand shielding, turned away
+figure(952, 932, 42, 6, True, False)
+
+# ---------------------------------------------------------------- png write
+def write_png(path):
     raw = bytearray()
-    stride = w * 3
-    for y in range(h):
+    for y in range(H):
         raw.append(0)
-        raw += data[y * stride:(y + 1) * stride]
+        raw.extend(buf[y * W * 3:(y + 1) * W * 3])
     comp = zlib.compress(bytes(raw), 9)
 
-    def chunk(tag, payload):
-        out = struct.pack(">I", len(payload)) + tag + payload
-        return out + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+    def chunk(typ, data):
+        c = struct.pack(">I", len(data)) + typ + data
+        c += struct.pack(">I", zlib.crc32(typ + data) & 0xFFFFFFFF)
+        return c
 
-    png = (b"\x89PNG\r\n\x1a\n"
-           + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-           + chunk(b"IDAT", comp)
-           + chunk(b"IEND", b""))
+    ihdr = struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+           + chunk(b"IDAT", comp) + chunk(b"IEND", b""))
     with open(path, "wb") as f:
         f.write(png)
     return len(png)
 
 
-def main():
-    build()
-    data = downsample()
-    outdir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
-    os.makedirs(outdir, exist_ok=True)
-    path = os.path.join(outdir, "entry.png")
-    size = write_png(path, data, SIZE, SIZE)
-    with open(path, "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
-    print("wrote %s: %d bytes, sha256 %s" % (path, size, digest))
-
-
-if __name__ == "__main__":
-    main()
+os.makedirs(OUT_DIR, exist_ok=True)
+size = write_png(os.path.join(OUT_DIR, "entry.png"))
+print(f"wrote {os.path.join(OUT_DIR, 'entry.png')} ({size} bytes)")
