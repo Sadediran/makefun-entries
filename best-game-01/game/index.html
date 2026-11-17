@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GLASSKEEP — Turn-Based Ricochet Defence</title>
+<meta name="description" content="GLASSKEEP: a turn-based ricochet defence in a stained-glass watchtower. Route a golden beam through mirrors to shatter clockwork moths before they cross the red line. Survive six waves.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230d0a1e'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='20' font-weight='bold' fill='%23f5c542' text-anchor='middle'%3EG%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div id="app">
+  <header id="masthead">
+    <div id="brand">
+      <h1>GLASSKEEP</h1>
+      <p class="tagline">A ricochet defence in a stained-glass watchtower</p>
+    </div>
+    <button id="btn-sound" type="button" aria-pressed="true" title="Toggle sound (M)">🔊 Sound</button>
+  </header>
+
+  <section id="hud" aria-label="Game status">
+    <span id="hud-wave" class="hud-item">Wave 1/6</span>
+    <span id="hud-turn" class="hud-item">Turn 1</span>
+    <span id="hud-hearts" class="hud-item hearts">♥♥♥</span>
+    <span id="hud-score" class="hud-item">Score 0</span>
+    <span id="hud-edits" class="hud-item">✦ Edit ready</span>
+    <span id="hud-best" class="hud-item">Best —</span>
+  </section>
+
+  <main id="stage">
+    <canvas id="board" width="700" height="776" aria-label="Stained-glass tower board"></canvas>
+
+    <div id="overlay-start" class="overlay">
+      <div class="panel">
+        <h2 class="panel-title">GLASSKEEP</h2>
+        <p class="panel-sub">Survive <strong>6 waves</strong> of clockwork moths.</p>
+        <p class="panel-sub">Three moths across the red line shatter the core.</p>
+        <ol class="rules">
+          <li><b>1 · Aim</b> — Drag a mirror to move it, or click it to flip its angle. One edit per turn.</li>
+          <li><b>2 · Fire</b> — Press <b>FIRE</b> or <b>Space</b>. The golden beam follows its preview exactly.</li>
+          <li><b>3 · Hold</b> — Moths advance after every shot. Bank shots and multi-kill chains score extra.</li>
+        </ol>
+        <p class="foes">Clockwork moth <span class="dot moth"></span> · Armoured, two hits <span class="dot armoured"></span> · Powder moth bursts <span class="dot explosive"></span></p>
+        <button id="btn-start" type="button" class="big">▶&nbsp; START THE WATCH</button>
+        <p class="controls-line">Mouse: drag &amp; click mirrors · Space: fire · U: undo · R: retry · P: pause · M: mute</p>
+        <p id="start-seed" class="meta"></p>
+        <p id="start-best" class="meta"></p>
+      </div>
+    </div>
+
+    <div id="overlay-upgrade" class="overlay hidden">
+      <div class="panel">
+        <h2 class="panel-title small">THE TOWER HOLDS</h2>
+        <p class="panel-sub">Choose one blessing before the next wave.</p>
+        <p id="upgrade-hearts" class="meta"></p>
+        <div id="upgrade-choices"></div>
+      </div>
+    </div>
+
+    <div id="overlay-pause" class="overlay hidden">
+      <div class="panel">
+        <h2 class="panel-title small">PAUSED</h2>
+        <p class="panel-sub">The moths wait. The beam waits.</p>
+        <button id="btn-resume" type="button" class="big">▶&nbsp; RESUME</button>
+        <button id="btn-restart" type="button" class="ghost">↺&nbsp; RESTART RUN</button>
+      </div>
+    </div>
+
+    <div id="overlay-victory" class="overlay hidden">
+      <div class="panel dawn">
+        <h2 class="panel-title victory">VICTORY</h2>
+        <p class="panel-sub dawn-sub">SIX WAVES CLEARED — dawn breaks over the restored window.</p>
+        <p id="victory-score" class="big-score"></p>
+        <p id="victory-breakdown" class="meta"></p>
+        <p id="victory-best" class="meta"></p>
+        <button id="btn-newrun" type="button" class="big">▶&nbsp; NEW RUN</button>
+        <button id="btn-retry" type="button" class="ghost">↺&nbsp; RETRY (R)</button>
+      </div>
+    </div>
+
+    <div id="overlay-defeat" class="overlay hidden">
+      <div class="panel shattered">
+        <h2 class="panel-title defeat">DEFEAT</h2>
+        <p class="panel-sub">The core lies shattered beneath the window.</p>
+        <p id="defeat-score" class="big-score"></p>
+        <p id="defeat-detail" class="meta"></p>
+        <p id="defeat-best" class="meta"></p>
+        <button id="btn-retry-defeat" type="button" class="big" onclick="document.getElementById('btn-retry').click()">↺&nbsp; RETRY (R)</button>
+        <button id="btn-title" type="button" class="ghost">⌂&nbsp; TITLE</button>
+      </div>
+    </div>
+  </main>
+
+  <div id="controls">
+    <button id="btn-fire" type="button" class="big fire">⚡ FIRE <span class="key">Space</span></button>
+    <button id="btn-undo" type="button" class="ghost">↩ Undo <span class="key">U</span></button>
+  </div>
+  <p id="hint">Turn 1 — drag a mirror into the golden beam, or click one to flip it, then FIRE.</p>
+  <footer id="foot">GLASSKEEP · an original game · best score is kept on this device only</footer>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
