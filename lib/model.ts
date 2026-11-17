@@ -166,6 +166,12 @@ export interface Radar {
   farm_assumptions: string[];
   formula: string;
   generated_by: string;
+  /** The fitted comp points for the scatter chart: the traded-token families. */
+  comps: { name: string; tvl_usd: number; mcap_usd: number; category: string }[];
+  /** The size curve with its bootstrap P25–P75 band, on a log-spaced TVL grid. */
+  band_grid: { tvl_usd: number; curve_usd: number; p25_usd: number; p75_usd: number }[];
+  /** The flat multiple the curve replaces: median mcap/TVL across the comps. */
+  flat_multiple: number;
 }
 
 /** The model's design choices. Fitted numbers are never stored here: the fit
@@ -640,6 +646,55 @@ export function bootstrapBands(
   };
 }
 
+/** The size curve with its bootstrap band, on a log-spaced TVL grid, for the
+ *  dashboard's scatter chart. Each grid point is predicted with the fitted
+ *  model (no tilts: the pure size curve) and with each of the 200 bootstrap
+ *  refits, whose P25–P75 is the band. The refits draw from a fresh generator
+ *  with the same seed, so they are the same refits the row bands use. */
+export function bootstrapBandGrid(
+  comps: Family[],
+  cats: string[],
+  as_of: string,
+  model: FittedModel,
+): { tvl_usd: number; curve_usd: number; p25_usd: number; p75_usd: number }[] {
+  const grid: number[] = [];
+  for (let i = 0; i < 16; i++) {
+    grid.push(
+      Math.pow(10, Math.log10(5e6) + (i / 15) * (Math.log10(3e10) - Math.log10(5e6))),
+    );
+  }
+  const rng = mulberry32(MODEL.bootstrap_seed);
+  const samples: number[][] = grid.map(() => []);
+  for (let b = 0; b < MODEL.bootstrap_refits; b++) {
+    const sample: Family[] = [];
+    for (let i = 0; i < comps.length; i++) {
+      sample.push(comps[Math.floor(rng() * comps.length)]!);
+    }
+    const refit = fitModel(sample, cats, as_of);
+    grid.forEach((tvl, i) => {
+      samples[i]!.push(
+        predict(
+          refit,
+          { tvl, category: null, change_7d: null, listed_at: null },
+          as_of,
+        ),
+      );
+    });
+  }
+  const quantile = (values: number[], q: number): number => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  };
+  return grid.map((tvl, i) => ({
+    tvl_usd: Math.round(tvl),
+    curve_usd: Math.round(
+      predict(model, { tvl, category: null, change_7d: null, listed_at: null }, as_of),
+    ),
+    p25_usd: Math.max(1, Math.round(quantile(samples[i]!, 0.25))),
+    p75_usd: Math.max(1, Math.round(quantile(samples[i]!, 0.75))),
+  }));
+}
+
 
 /** How many protocols share each brand, over the whole snapshot. */
 function brandCounts(protocols: SnapshotProtocol[]): Map<string, number> {
@@ -793,6 +848,8 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   const comps = compSet(families);
   const cats = modelCategories(comps);
   const model = fitModel(comps, cats, as_of);
+  const bandGrid = bootstrapBandGrid(comps, cats, as_of, model);
+  const flatMultipleValue = flatMultiple(comps);
   const loo = looValidation(comps, cats, as_of);
   const validation: ValidationTest[] = [];
   const ts = timeSplitValidation(comps, cats, as_of);
@@ -964,6 +1021,16 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     ],
     formula,
     generated_by: 'Token Radar v2 — fitted log-log size curve on the snapshot’s traded tokens',
+    comps: comps
+      .map((f) => ({
+        name: f.name,
+        tvl_usd: f.tvl,
+        mcap_usd: f.mcap!,
+        category: f.category ?? 'Uncategorized',
+      }))
+      .sort((a, b) => b.tvl_usd - a.tvl_usd),
+    band_grid: bandGrid,
+    flat_multiple: flatMultipleValue,
   };
   return { board, radar };
 }

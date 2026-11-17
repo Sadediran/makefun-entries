@@ -3,93 +3,136 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Radar v2 — fitted-curve launch radar</title>
+<title>Token Radar v2 — the best token launch radar</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header>
-  <h1>TOKEN RADAR <span class="v2">v2</span></h1>
-  <p class="tag">The best token launch radar: a fitted curve, validated out of sample, on the snapshot&rsquo;s own figures.</p>
-  <p class="meta" id="meta">Loading the sealed snapshot&hellip;</p>
-</header>
-
-<section id="model" class="panel">
-  <h2>The value model</h2>
-  <p>A pre-token protocol&rsquo;s implied value is what its token would be worth if the market priced it the way it prices the protocols whose tokens already trade &mdash; fitted, not assumed. The curve is a log-log fit on the snapshot&rsquo;s traded tokens, grouped into families so one token never counts twice, with small category, growth and seasoning tilts fitted by ridge regression. Exchange and bridge tokens are left out of the fit (their value does not relate to TVL the same way), and so are degenerate comps whose market cap is more than 10&times; their TVL.</p>
-  <p class="formula" id="formula"></p>
-  <!-- Fitted on the sealed snapshot (as of 2026-11-14): log10(value) = 2.61 + 0.55 x log10(TVL)
-       + category tilt (Basis Trading +0.14, Dexs +0.11, Lending -0.10, Liquid Staking -0.14,
-       RWA +0.12, Yield -0.07) - 0.01 x growth/100 + 0.08 x log10(age/365d). Leave-one-out median
-       miss x2.94 (51% within 3x) vs flat multiple x4.99; time-split x2.50 (57% within 3x);
-       walk-forward x2.30 (55% within 3x). 97 traded-token families fit the curve. -->
-  <h3>Validation &mdash; tested out of sample, against the flat multiple it replaces</h3>
-  <table id="validation">
-    <thead><tr><th>Test</th><th>Tested</th><th>This model</th><th>Flat multiple</th><th>Within 3&times;</th></tr></thead>
-    <tbody></tbody>
-  </table>
-  <p class="note">Median miss is the factor by which the prediction is typically off: &times;2.9 means the true value usually lands within 2.9&times; of the estimate, up or down. Every row also carries a P25&ndash;P75 value band and a P10&ndash;P90 rank range from 200 bootstrap refits, so the uncertainty is visible where the number is.</p>
-</section>
-
-<section id="controls" class="panel">
-  <input id="search" type="search" placeholder="Search a protocol&hellip;" aria-label="Search protocols">
-  <label>Bucket
-    <select id="bucket">
-      <option value="">All buckets</option>
-      <option value="watchlist">Watchlist</option>
-      <option value="parent-linked">Parent-linked</option>
-      <option value="early">Early</option>
-    </select>
-  </label>
-  <label>Farm verdict
-    <select id="verdict">
-      <option value="">All verdicts</option>
-      <option value="farm">Farm</option>
-      <option value="thin">Thin</option>
-      <option value="skip">Skip</option>
-    </select>
-  </label>
-  <label>Sort
-    <select id="sort">
-      <option value="rank">Rank</option>
-      <option value="value">Implied value</option>
-      <option value="tvl">TVL</option>
-      <option value="net">Net $/hour</option>
-      <option value="slice">Farm slice</option>
-    </select>
-  </label>
-  <span id="count"></span>
-</section>
-
-<table id="board">
-  <thead>
-    <tr>
-      <th>#</th><th>Protocol</th><th>TVL</th><th>Implied value</th><th>Rank range</th>
-      <th>Farm verdict</th><th>Slice</th><th>Break-even</th><th>Net $/h</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
-
-<aside id="detail" hidden>
-  <button id="close" aria-label="Close detail view">&times;</button>
-  <div id="detail-body"></div>
+<aside class="sidebar">
+  <div class="brand">
+    <svg class="radar-logo" viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="32" cy="32" r="29" fill="none" stroke="#1e3a2a" stroke-width="2"/>
+      <circle cx="32" cy="32" r="20" fill="none" stroke="#1e3a2a" stroke-width="1.5"/>
+      <circle cx="32" cy="32" r="11" fill="none" stroke="#1e3a2a" stroke-width="1.5"/>
+      <line x1="32" y1="3" x2="32" y2="61" stroke="#1e3a2a" stroke-width="1"/>
+      <line x1="3" y1="32" x2="61" y2="32" stroke="#1e3a2a" stroke-width="1"/>
+      <g class="sweep"><line x1="32" y1="32" x2="32" y2="5" stroke="#2ee86b" stroke-width="2.5" stroke-linecap="round"/></g>
+      <circle cx="44" cy="22" r="3" fill="#2ee86b"/>
+      <circle cx="22" cy="42" r="2.5" fill="#4da3ff"/>
+      <circle cx="40" cy="46" r="2" fill="#f5a623"/>
+    </svg>
+    <div class="brand-text"><strong>TOKEN RADAR</strong><span>v2 · Scan · Value · Farm</span></div>
+  </div>
+  <nav id="nav">
+    <button data-nav="overview" class="active"><span class="nav-dot"></span>Overview</button>
+    <button data-nav="rankings"><span class="nav-dot"></span>Rankings</button>
+    <button data-nav="watchlist"><span class="nav-dot"></span>Watchlist</button>
+    <button data-nav="farm"><span class="nav-dot"></span>Farm Plans</button>
+    <button data-nav="analytics"><span class="nav-dot"></span>Analytics</button>
+    <button data-nav="about"><span class="nav-dot"></span>About</button>
+  </nav>
+  <div class="side-card">
+    <div class="side-card-title">★ Competition Edition</div>
+    <p>Built for the make.fun token-radar-01 bounty. The last submission before the deadline is the final entry.</p>
+  </div>
+  <div class="side-foot">
+    <p>Data snapshot<br><strong id="side-asof"></strong><br><span class="muted">DefiLlama · sealed</span></p>
+    <p class="muted">Token Radar v2.0<br>Built for the next token.</p>
+  </div>
 </aside>
 
-<section id="method" class="panel">
-  <h2>Method &amp; honesty notes</h2>
-  <h3>Coverage</h3>
-  <p>The board ranks the 40 watchlist protocols, the above-floor pre-token protocols that pass the snapshot&rsquo;s own legitimacy signals, and the largest below-floor pre-token protocols by TVL. A protocol is set aside, with its reason stated, when its category is a bridge, exchange or staking product, its name ends in a version marker or carries wrapped/staked, it begins with an exchange&rsquo;s name, or it belongs to a multi-product family (two or more protocols sharing the same brand &mdash; the launch, if any, belongs to the family, not the deployment). No protocol name is ever special-cased.</p>
-  <p id="accounting"></p>
-  <h3>What &ldquo;pre-token&rdquo; means here</h3>
-  <p>Ranked by the snapshot&rsquo;s record: a protocol the snapshot records with no token. The snapshot is DefiLlama&rsquo;s record, not proof a token does not exist &mdash; a protocol may have a token its record does not carry, and this board never claims otherwise. Values are estimates from a fitted curve, not predictions that a token launches or when.</p>
-  <h3>Farm economics</h3>
-  <p id="farm-notes">Airdrop pool: 5% of the implied value, the conservative end of the usual 5&ndash;15% community airdrop. Participation: 20% of TVL actively farms points; the rest is passive, so the slice is the deposit&rsquo;s share of the farming fifth. Horizon: 26 weeks, 3 hours of attention (1 hour to set up, about 5 minutes a week). Costs: gas ($5 on a cheap chain, $25 on Ethereum mainnet) plus the 4% T-bill return the deposit gives up. Verdict: FARM when the net pay beats $5/hour and the break-even odds sit under 50%; SKIP when the net pay is negative or the break-even odds pass 100%; THIN in between.</p>
-  <p>The $1,000 tier decides the board&rsquo;s verdict; the detail view shows the same plan sized to $100 and $10,000. The biggest launches are the worst $1,000 farms &mdash; a small deposit is a rounding error in a billion-dollar pool &mdash; so the best farms sit further down the board, where the slice is a real share of a smaller pool.</p>
-</section>
+<main>
+  <header class="hero">
+    <div>
+      <h1>The Ultimate Token <em>Launch Radar</em></h1>
+      <p class="subtitle">Discover high-potential pre-token protocols — and know if it&rsquo;s worth farming now.</p>
+    </div>
+    <div class="hero-badges">
+      <span class="badge ok">✓ <strong id="badge-ranked"></strong> Protocols Ranked</span>
+      <span class="badge">▦ <strong id="badge-anchors"></strong> Anchors</span>
+      <span class="badge">▣ <strong id="badge-asof"></strong></span>
+    </div>
+  </header>
 
-<footer>
-  <p id="generated"></p>
-</footer>
+  <section class="stats" id="stats"></section>
+
+  <section class="grid-main">
+    <div class="panel chart-panel" id="analytics">
+      <div class="panel-head"><h2>Valuation Model Performance</h2><span class="pill ok">Validated</span></div>
+      <div id="chart"></div>
+      <div class="validation" id="validation"></div>
+      <p class="formula" id="formula"></p>
+      <!-- Fitted on the sealed snapshot (as of 2026-11-14): log10(value) = 2.61 + 0.55 x log10(TVL)
+           + category tilt (Basis Trading +0.14, Dexs +0.11, Lending -0.10, Liquid Staking -0.14,
+           RWA +0.12, Yield -0.07) - 0.01 x growth/100 + 0.08 x log10(age/365d). Leave-one-out median
+           miss x2.94 (51% within 3x) vs flat multiple x4.99; time-split x2.50 (57% within 3x);
+           walk-forward x2.30 (55% within 3x). 97 traded-token families fit the curve. -->
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Farming Opportunity Overview</h2></div>
+      <div class="farm-cards" id="farm-cards"></div>
+      <p class="note warn">⚠ Farm economics are estimates from stated assumptions, not guarantees. The biggest launches are the worst $1K farms — the board shows why, row by row.</p>
+    </div>
+  </section>
+
+  <section class="grid-main">
+    <div class="panel">
+      <div class="panel-head"><h2>Top Protocols by Launch Potential</h2><button class="link" data-nav="rankings">View All 198 →</button></div>
+      <div id="top5"></div>
+    </div>
+    <div class="stack">
+      <div class="panel">
+        <div class="panel-head"><h2>Key Insights</h2></div>
+        <div id="insights"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Category Mix</h2></div>
+        <div id="categories"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="rankings">
+    <div class="panel-head"><h2>Rankings</h2><span class="muted" id="rowcount"></span></div>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Search a protocol…" autocomplete="off">
+      <label>Bucket <select id="bucket"><option value="">All buckets</option><option value="watchlist">Watchlist</option><option value="parent-linked">Parent-linked</option><option value="early">Early</option></select></label>
+      <label>Farm verdict <select id="verdict"><option value="">All verdicts</option><option value="farm">Farm</option><option value="thin">Thin</option><option value="skip">Skip</option></select></label>
+      <label>Sort <select id="sort"><option value="rank">Rank</option><option value="value">Implied value</option><option value="tvl">TVL</option><option value="net">Net $/hour</option></select></label>
+    </div>
+    <div class="table-wrap">
+      <table class="board">
+        <thead><tr><th>#</th><th>Protocol</th><th>TVL</th><th>Implied value</th><th>Rank range</th><th>Farm verdict</th><th>Slice</th><th>Break-even</th><th>Net $/h</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="muted small" id="generated"></p>
+  </section>
+
+  <section class="panel" id="about">
+    <h2>Method &amp; honesty notes</h2>
+    <p>A pre-token protocol&rsquo;s implied value is what its token would be worth if the market priced it the way it prices the protocols whose tokens already trade — fitted, not assumed. The curve is a log-log fit on the snapshot&rsquo;s traded tokens, grouped into families so one token never counts twice, with small category, growth and seasoning tilts fitted by ridge regression. Exchange and bridge tokens are left out of the fit (their value does not relate to TVL the same way), and so are degenerate comps whose market cap is more than 10× their TVL.</p>
+    <h3>Coverage</h3>
+    <p id="coverage"></p>
+    <div id="setaside"></div>
+    <h3>Farm economics</h3>
+    <p id="farm-notes">Airdrop pool: 5% of the implied value, the conservative end of the usual 5&ndash;15% community airdrop. Participation: 20% of TVL actively farms points; the rest is passive, so the slice is the deposit&rsquo;s share of the farming fifth. Horizon: 26 weeks, 3 hours of attention (1 hour to set up, about 5 minutes a week). Costs: gas ($5 on a cheap chain, $25 on Ethereum mainnet) plus the 4% T-bill return the deposit gives up. Verdict: FARM when the net pay beats $5/hour and the break-even odds sit under 50%; SKIP when the net pay is negative or the break-even odds pass 100%; THIN in between.</p>
+    <h3>Honesty notes</h3>
+    <ul>
+      <li>Every value here is an estimate from one snapshot (14 Nov 2026). The bands say how uncertain it is: a P25–P75 band ×1.6 wide means the true value usually lands within that range, up or down.</li>
+      <li>&ldquo;Pre-token&rdquo; means the snapshot records no token for the protocol — never that it has none. A protocol whose parent&rsquo;s token trades elsewhere is still ranked, because the record is what the radar reads.</li>
+      <li>Farm economics assume a 5% airdrop pool and a fifth of TVL farming. A smaller pool, a busier farm, or no token at all makes every slice smaller — the break-even odds say how much slack each row has.</li>
+      <li>The biggest launches are the worst $1K farms: their slices are split across enormous TVLs. The best $1K farms sit lower down the board, where a deposit is a bigger share of the farm.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>Token valuations are estimates, not financial advice. Farming opportunities may be unconfirmed and carry risks.</p>
+    <p class="made">✓ Made for the make.fun Competition</p>
+  </footer>
+</main>
+
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-label="Protocol detail"></aside>
 
 <script src="../data.js"></script>
 <script src="app.js"></script>
