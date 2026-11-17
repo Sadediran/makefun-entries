@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GLASSKEEP — The Four Towers</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="masthead">
+    <div class="masthead-text">
+      <h1>GLASSKEEP</h1>
+      <p class="tagline">A ricochet defence in a stained-glass watchtower</p>
+    </div>
+    <button id="soundBtn" class="btn small">🔊 Sound</button>
+  </header>
+
+  <div id="hud">
+    <span id="hudTower">—</span>
+    <span id="hudAssault">—</span>
+    <span id="hudTurn">—</span>
+    <span id="hudHearts">♥♥♥</span>
+    <span id="hudScore">Score 0</span>
+    <span id="hudEmbers">◆ 0</span>
+    <span id="hudRelics">No relics yet</span>
+    <span id="hudBest">Best 0</span>
+  </div>
+
+  <div id="bossBar" class="hidden">
+    <span id="bossName"></span>
+    <div class="boss-hp"><div id="bossHpFill"></div></div>
+    <span id="bossHpText"></span>
+  </div>
+
+  <div id="stage">
+    <canvas id="board" width="700" height="720"></canvas>
+
+    <div id="startOverlay" class="overlay">
+      <div class="panel start-panel">
+        <h2 class="game-title">GLASSKEEP</h2>
+        <p class="subtitle">The Four Towers</p>
+        <p class="systems">4 TOWERS · 12 ASSAULTS · 4 MOTHS + THE GRAND MOTH · 9 RELICS · 3 EMBER CRAFTS</p>
+        <ol class="rules">
+          <li><b>Aim</b> — tap a mirror to flip it, drag it to move it.</li>
+          <li><b>Fire</b> — the golden beam ricochets through the mirrors.</li>
+          <li><b>Hold</b> — no moth may reach the bottom line. Defend all four towers.</li>
+        </ol>
+        <p class="foes">Silk · Iron · Powder · Warden — and the Grand Moth waits in the Sable Tower.</p>
+        <button id="startBtn" class="btn big">▶ START THE WATCH</button>
+        <p id="startBest" class="best-line"></p>
+      </div>
+    </div>
+
+    <div id="mapOverlay" class="overlay hidden">
+      <div class="panel map-panel">
+        <h2>Choose Your Tower</h2>
+        <p id="campaignTotal" class="campaign-total">Towers defended: 0 / 4</p>
+        <div id="mapCards" class="map-cards"></div>
+        <button id="resetSaveBtn" class="btn small quiet">Reset progress</button>
+      </div>
+    </div>
+
+    <div id="introOverlay" class="overlay hidden">
+      <div class="panel">
+        <h2 id="introTowerName"></h2>
+        <p id="introTowerDiff" class="diff"></p>
+        <p id="introTowerText"></p>
+        <p id="introTowerEnemies" class="foes"></p>
+        <p class="intro-note">Three assaults. The third carries the tower's guardian.</p>
+        <div class="row">
+          <button id="introBeginBtn" class="btn big">▶ DEFEND THE TOWER</button>
+          <button id="introBackBtn" class="btn small">← Map</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="craftOverlay" class="overlay hidden">
+      <div class="panel">
+        <h2>The Ember Forge</h2>
+        <p id="craftBalance" class="balance"></p>
+        <p class="note">Spend Embers between assaults — or keep them: each unspent Ember is worth +10 score.</p>
+        <div id="craftCards" class="craft-cards"></div>
+        <button id="craftDoneBtn" class="btn big">Done →</button>
+      </div>
+    </div>
+
+    <div id="draftOverlay" class="overlay hidden">
+      <div class="panel">
+        <h2>Choose a Relic</h2>
+        <p class="note">Pick one. It stays with you for the rest of this tower.</p>
+        <div id="draftCards" class="draft-cards"></div>
+      </div>
+    </div>
+
+    <div id="pauseOverlay" class="overlay hidden">
+      <div class="panel small-panel">
+        <h2>Paused</h2>
+        <p class="note">The moths wait. The light does not fade.</p>
+        <button id="resumeBtn" class="btn big">▶ Resume</button>
+        <button id="restartBtn" class="btn">↻ Restart tower</button>
+        <button id="quitBtn" class="btn">← Quit to map</button>
+      </div>
+    </div>
+
+    <div id="towerWinOverlay" class="overlay hidden">
+      <div class="panel">
+        <p class="grade-label">TOWER GRADE</p>
+        <p id="towerWinGrade" class="grade"></p>
+        <h2 id="towerWinTitle"></h2>
+        <p class="win-line">Dawn breaks over the restored window.</p>
+        <div id="towerWinStats" class="stats"></div>
+        <div class="row">
+          <button id="towerWinNextBtn" class="btn big">Next tower →</button>
+          <button id="towerWinMapBtn" class="btn small">Map</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="campaignWinOverlay" class="overlay hidden">
+      <div class="panel">
+        <p class="grade-label">CAMPAIGN GRADE</p>
+        <p id="campaignWinGrade" class="grade"></p>
+        <h2>All Four Towers Defended</h2>
+        <p id="campaignWinTotal" class="win-total"></p>
+        <div id="campaignWinTable" class="grade-table"></div>
+        <p id="campaignWinRelics" class="relic-recap"></p>
+        <div class="row">
+          <button id="campaignWinMapBtn" class="btn big">← Map</button>
+          <button id="campaignWinAgainBtn" class="btn">↻ Play again</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="defeatOverlay" class="overlay hidden">
+      <div class="panel">
+        <h2 id="defeatTitle"></h2>
+        <p class="win-line">The glass darkens — but the watch is not over.</p>
+        <div id="defeatStats" class="stats"></div>
+        <p id="defeatTip" class="tip"></p>
+        <div class="row">
+          <button id="defeatRetryBtn" class="btn big">↻ Try again</button>
+          <button id="defeatMapBtn" class="btn small">Map</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <button id="fireBtn" class="btn fire">🔥 FIRE</button>
+    <button id="undoBtn" class="btn">↩ Undo</button>
+    <button id="pauseBtn" class="btn">⏸ Pause</button>
+  </div>
+  <p id="hint"></p>
+  <footer>4 TOWERS · 12 ASSAULTS · 4 MOTHS + THE GRAND MOTH · 9 RELICS · 3 EMBER CRAFTS · KEYBOARD: ARROWS MOVE · SPACE FLIP · F FIRE · U UNDO · P PAUSE · M MUTE</footer>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
